@@ -122,6 +122,8 @@ import axios from "@/utils/axios";
 import projectStore from "@/stores/project";
 
 const { project } = storeToRefs(projectStore());
+const router = useRouter();
+const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
 import settingStore from "@/stores/setting";
 const { canvasWheelEvent, otherSetting } = storeToRefs(settingStore());
 const openShowVisible = ref(true);
@@ -243,6 +245,23 @@ async function waitForNodesReady(maxRetries = 60, delay = 100) {
 }
 
 onMounted(async () => {
+  if (isAdvertisement.value && project.value?.id) {
+    try {
+      const { data } = await axios.post("/project/advertisement/getWorkflowState", {
+        projectId: Number(project.value.id),
+      });
+      if (!data.ready) {
+        window.$message.warning($t("workbench.menu.adProductionBlocked"));
+        await router.replace("/assets");
+        return;
+      }
+    } catch (e: any) {
+      window.$message.error(e?.message || $t("workbench.menu.adWorkflowCheckFailed"));
+      await router.replace("/assets");
+      return;
+    }
+  }
+
   await getScriptData();
   if (!episodesId.value) return;
 
@@ -461,32 +480,39 @@ async function refFlowData() {
 }
 
 const current = useLocalStorage("productionCurrent", 0);
-const steps = [
-  {
-    element: ".episodesSelect",
-    title: $t("workbench.production.guideSwitchEpisode"),
-    body: $t("workbench.production.guideSwitchEpisodeBody"),
-    placement: "bottom",
-  },
-  {
-    element: ".guide-refresh-btn",
-    title: $t("workbench.production.guideRefresh"),
-    body: $t("workbench.production.guideRefreshBody"),
-    placement: "bottom",
-  },
-  {
-    element: ".guide-layout-btn",
-    title: $t("workbench.production.guideLayoutBtn"),
-    body: $t("workbench.production.guideLayoutBtnBody"),
-    placement: "bottom",
-  },
-  {
-    element: ".vue-flow__controls",
-    title: $t("workbench.production.guideCanvasNav"),
-    body: $t("workbench.production.guideCanvasNavBody"),
-    placement: "right",
-  },
-] as any;
+const steps = computed(
+  () =>
+    [
+      {
+        element: ".episodesSelect",
+        title: isAdvertisement.value
+          ? $t("workbench.production.guideSwitchProductionUnit")
+          : $t("workbench.production.guideSwitchEpisode"),
+        body: isAdvertisement.value
+          ? $t("workbench.production.guideSwitchProductionUnitBody")
+          : $t("workbench.production.guideSwitchEpisodeBody"),
+        placement: "bottom",
+      },
+      {
+        element: ".guide-refresh-btn",
+        title: $t("workbench.production.guideRefresh"),
+        body: $t("workbench.production.guideRefreshBody"),
+        placement: "bottom",
+      },
+      {
+        element: ".guide-layout-btn",
+        title: $t("workbench.production.guideLayoutBtn"),
+        body: $t("workbench.production.guideLayoutBtnBody"),
+        placement: "bottom",
+      },
+      {
+        element: ".vue-flow__controls",
+        title: $t("workbench.production.guideCanvasNav"),
+        body: $t("workbench.production.guideCanvasNavBody"),
+        placement: "right",
+      },
+    ] as any,
+);
 
 const fps = ref(0);
 let lastFrameTime = performance.now();
