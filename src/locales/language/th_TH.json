@@ -995,7 +995,9 @@
       "node": {
         "script": {
           "title": "บทภาพยนตร์",
-          "editDialog": "แก้ไขบทภาพยนตร์"
+          "editDialog": "แก้ไขบทภาพยนตร์",
+          "adTitle": "บรีฟโฆษณา",
+          "adEditDialog": "แก้ไขบรีฟโฆษณา"
         },
         "scriptPlan": {
           "title": "แผนการถ่ายทำ",
@@ -1022,14 +1024,16 @@
           "notGenerated": "ยังไม่สร้าง",
           "originalAsset": "สินทรัพย์ต้นฉบับ",
           "derived": "ต่อยอด",
-          "noDerivedAssets": "ไม่มีสินทรัพย์ต่อยอด"
+          "noDerivedAssets": "ไม่มีสินทรัพย์ต่อยอด",
+          "adTitle": "สินทรัพย์โฆษณา"
         },
         "poster": {
           "title": "ภาพปกวิดีโอ",
           "coverCount": "{count} รูป"
         },
         "workbench": {
-          "title": "พื้นที่ทำงานวิดีโอ"
+          "title": "พื้นที่ทำงานวิดีโอ",
+          "adTitle": "เวิร์กเบนช์ตัดต่อโฆษณา"
         }
       },
       "editImage": {
