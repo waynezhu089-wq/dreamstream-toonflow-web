@@ -169,7 +169,7 @@ function handleDeleteSelected() {
           dialog.destroy();
           return window.$message.error($t("workbench.production.node.storyboard.pleaseSelectImage"));
         }
-        axios.post("/production/storyboard/batchDelete", {
+        await axios.post("/production/storyboard/batchDelete", {
           ids: selectedIds.value,
           projectId: project.value?.id,
         });
