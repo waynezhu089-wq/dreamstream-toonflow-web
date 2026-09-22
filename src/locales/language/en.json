@@ -551,7 +551,12 @@
       "assetCenter": "Asset Center",
       "settings": "Settings",
       "jumpGithub": "Jump to Github",
-      "feedbackQuestions": "Feedback question"
+      "feedbackQuestions": "Feedback question",
+      "adAssetPrep": "Ad Asset Prep",
+      "adAssetBuild": "Asset Generation",
+      "adProduction": "Ad Production",
+      "adProductionBlocked": "Complete and confirm advertisement asset preparation first",
+      "adWorkflowCheckFailed": "Failed to check advertisement workflow state"
     },
     "project": {
       "title": "My Projects",
@@ -1107,7 +1112,19 @@
       },
       "confirmCancellation": "Confirm cancellation",
       "confirmAgain": "Confirm cancellation? \nAfter cancellation, the backend AI will continue to call for deductions.",
-      "sure": "Sure"
+      "sure": "Sure",
+      "adWorkflow": {
+        "title": "Advertisement Asset Preparation",
+        "desc": "Prepare real media and base character/scene assets first. Enter production only after the assets are ready and confirmed.",
+        "assetProgress": "Assets ready {ready}/{total}",
+        "incomplete": "{count} assets incomplete",
+        "assetsReady": "Assets have usable media",
+        "goAssetGeneration": "Asset Generation",
+        "confirmAndContinue": "Confirm Assets and Enter Ad Production",
+        "stateFailed": "Failed to load advertisement asset state",
+        "confirmed": "Asset preparation confirmed",
+        "confirmFailed": "Failed to confirm asset preparation"
+      }
     },
     "production": {
       "selectPlaceholder": "Please select an episode",
@@ -1207,7 +1224,10 @@
         "confirmClear": "Clear Memory",
         "confirmClearBody": "Are you sure you want to clear {type}?",
         "confirmClearBtn": "Confirm",
-        "memoryCleared": "{type} cleared"
+        "memoryCleared": "{type} cleared",
+        "adWelcomeMessage": "I am the advertisement production assistant. The assets have passed the preparation gate, and I will follow the normal ad workflow through directing, storyboard, review and generation preparation.",
+        "adStartPlanning": "Start Ad Planning",
+        "adStartPlanningPrompt": "Use the advertisement brief and confirmed assets to begin the normal advertising production workflow. Check objective, audience, platform, duration, core message and assets before storyboarding. Do not skip stages."
       },
       "wb": {
         "quickPreview": "Quick Preview",
@@ -1468,7 +1488,9 @@
       "autoLayoutTB": "Automatic typesetting-top and bottom layout",
       "getFlowData": "Refresh workspace",
       "confirm": "Switch episode confirmation",
-      "confirmEpisodesSwitch": "The current task is still in progress. Switching episodes will reconnect the session. Do you want to continue switching?"
+      "confirmEpisodesSwitch": "The current task is still in progress. Switching episodes will reconnect the session. Do you want to continue switching?",
+      "guideSwitchProductionUnit": "Switch Production Unit",
+      "guideSwitchProductionUnitBody": "Switch the current advertisement production unit here."
     },
     "task": {
       "title": "Task List",
