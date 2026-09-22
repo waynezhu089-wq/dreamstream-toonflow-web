@@ -447,6 +447,11 @@
         "selectType": "選擇專案類型",
         "basedOnNovel": "基於小說原文",
         "basedOnScript": "基於劇本",
+        "basedOnGeneralVideo": "通用影片",
+        "productionProfile": "製作類型",
+        "advertisement": "廣告影片",
+        "projectIntro": "專案簡介",
+        "projectIntroPh": "請輸入廣告/影片專案簡介或 Brief",
         "projectName": "專案名稱",
         "projectNamePh": "請輸入專案名稱",
         "novelType": "小說類型",
@@ -497,6 +502,7 @@
       "msg": {
         "fetchFailed": "取得專案列表失敗",
         "notFound": "找不到該專案！",
+        "generalVideoInitFailed": "通用影片製作單元初始化失敗",
         "editSuccess": "編輯專案成功",
         "editFailed": "編輯專案失敗",
         "addSuccess": "新增專案成功",
@@ -541,7 +547,9 @@
       },
       "type": {
         "novel": "基於小說原文",
-        "script": "基於小說劇本"
+        "script": "基於小說劇本",
+        "generalVideo": "通用影片",
+        "advertisement": "廣告影片"
       }
     },
     "novel": {
