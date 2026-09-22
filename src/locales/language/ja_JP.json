@@ -480,6 +480,11 @@
           "title": "即効性のある言葉"
         },
         "basedOnScript": "脚本に基づいて",
+        "basedOnGeneralVideo": "汎用動画",
+        "productionProfile": "制作タイプ",
+        "advertisement": "広告動画",
+        "projectIntro": "プロジェクト概要",
+        "projectIntroPh": "広告/動画プロジェクトの概要またはBriefを入力してください",
         "mdFile": "ビジュアルマニュアルファイル",
         "directorManual": "ディレクターズハンドブック",
         "addDirectorManual": "新しいディレクターマニュアル",
@@ -494,6 +499,7 @@
       "msg": {
         "fetchFailed": "プロジェクトリストの取得に失敗しました",
         "notFound": "プロジェクトが見つかりません！",
+        "generalVideoInitFailed": "汎用動画の制作単位の初期化に失敗しました",
         "editSuccess": "プロジェクトを編集しました",
         "editFailed": "プロジェクトの編集に失敗しました",
         "addSuccess": "プロジェクトを新規作成しました",
@@ -537,7 +543,9 @@
       },
       "type": {
         "novel": "原作小説に基づいて",
-        "script": "小説の脚本に基づく"
+        "script": "小説の脚本に基づく",
+        "generalVideo": "汎用動画",
+        "advertisement": "広告動画"
       }
     },
     "novel": {
