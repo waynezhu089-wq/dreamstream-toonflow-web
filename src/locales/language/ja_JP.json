@@ -994,7 +994,9 @@
       "node": {
         "script": {
           "title": "シナリオ",
-          "editDialog": "シナリオの編集"
+          "editDialog": "シナリオの編集",
+          "adTitle": "広告 Brief",
+          "adEditDialog": "広告 Brief を編集"
         },
         "scriptPlan": {
           "title": "撮影プラン",
@@ -1021,14 +1023,16 @@
           "notGenerated": "未生成",
           "originalAsset": "元のアセット",
           "derived": "派生",
-          "noDerivedAssets": "派生アセットなし"
+          "noDerivedAssets": "派生アセットなし",
+          "adTitle": "広告アセット"
         },
         "poster": {
           "title": "動画カバー",
           "coverCount": "{count} 枚"
         },
         "workbench": {
-          "title": "動画ワークベンチ"
+          "title": "動画ワークベンチ",
+          "adTitle": "広告仕上げワークベンチ"
         }
       },
       "editImage": {
