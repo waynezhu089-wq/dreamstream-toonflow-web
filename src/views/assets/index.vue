@@ -1,5 +1,40 @@
 <template>
   <div class="assets">
+    <div v-if="isAdvertisement" class="adWorkflowGate">
+      <div class="adWorkflowInfo">
+        <div class="adWorkflowTitle">{{ $t("workbench.assets.adWorkflow.title") }}</div>
+        <div class="adWorkflowDesc">{{ $t("workbench.assets.adWorkflow.desc") }}</div>
+        <div class="adWorkflowStats" v-if="advertisementWorkflow">
+          <t-tag theme="primary" variant="light">
+            {{ $t("workbench.assets.adWorkflow.assetProgress", {
+              ready: advertisementWorkflow.readyAssetCount,
+              total: advertisementWorkflow.assetCount,
+            }) }}
+          </t-tag>
+          <t-tag
+            v-if="advertisementWorkflow.incompleteAssets?.length"
+            theme="warning"
+            variant="light">
+            {{ $t("workbench.assets.adWorkflow.incomplete", { count: advertisementWorkflow.incompleteAssets.length }) }}
+          </t-tag>
+          <t-tag v-else-if="advertisementWorkflow.assetCount > 0" theme="success" variant="light">
+            {{ $t("workbench.assets.adWorkflow.assetsReady") }}
+          </t-tag>
+        </div>
+      </div>
+      <div class="adWorkflowActions">
+        <t-button variant="outline" @click="goAssetGeneration">
+          {{ $t("workbench.assets.adWorkflow.goAssetGeneration") }}
+        </t-button>
+        <t-button
+          theme="success"
+          :disabled="!canConfirmAdvertisementAssets"
+          :loading="confirmingAdvertisementAssets"
+          @click="confirmAdvertisementAssets">
+          {{ $t("workbench.assets.adWorkflow.confirmAndContinue") }}
+        </t-button>
+      </div>
+    </div>
     <div class="data">
       <t-tabs v-model="assetOptions" @change="selectAssetOptions">
         <t-tab-panel v-for="(item, index) in themeData" :key="index" :value="item.value">
@@ -379,8 +414,9 @@
       v-model="addAssetsShow"
       :type="assetOptions"
       :title="tabNameMap[assetOptions]"
+      :scriptId="advertisementScriptId"
       :formData="formData"
-      @getFilteredData="getFilteredData(assetOptions)" />
+      @getFilteredData="handleAssetsChanged" />
     <generateImage v-model="generateImageShow" @update="loadCurrentTabData" :formData="currentAssetData" />
 
     <addAudioAssets v-model="addAudioShow" v-if="addAudioShow" :formData="audioFormData" @getFilteredData="getFilteredData(assetOptions)" />
@@ -443,6 +479,17 @@ import generateImage from "./components/generateImage.vue";
 import projectStore from "@/stores/project";
 import settingStore from "@/stores/setting";
 const { otherSetting } = storeToRefs(settingStore());
+const router = useRouter();
+const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
+const advertisementScriptId = ref<number | null>(null);
+const advertisementWorkflow = ref<any>(null);
+const confirmingAdvertisementAssets = ref(false);
+const canConfirmAdvertisementAssets = computed(
+  () =>
+    Boolean(advertisementWorkflow.value) &&
+    advertisementWorkflow.value.assetCount > 0 &&
+    advertisementWorkflow.value.incompleteAssets?.length === 0,
+);
 
 const props = withDefaults(
   defineProps<{
@@ -468,8 +515,9 @@ const audioFormData = ref({
   sex: "",
 });
 
-onMounted(() => {
-  loadCurrentTabData();
+onMounted(async () => {
+  if (isAdvertisement.value) await refreshAdvertisementWorkflow();
+  await loadCurrentTabData();
 });
 
 onUnmounted(() => {
@@ -585,6 +633,49 @@ async function getFilteredData(type: string) {
     loading.value = false;
   }
 }
+async function refreshAdvertisementWorkflow() {
+  if (!isAdvertisement.value || !project.value?.id) return;
+  try {
+    const { data } = await axios.post("/project/advertisement/getWorkflowState", {
+      projectId: Number(project.value.id),
+    });
+    advertisementWorkflow.value = data;
+    advertisementScriptId.value = data.scriptId ?? null;
+  } catch (e: any) {
+    advertisementWorkflow.value = null;
+    advertisementScriptId.value = null;
+    window.$message.error(e?.message || $t("workbench.assets.adWorkflow.stateFailed"));
+  }
+}
+
+async function handleAssetsChanged() {
+  await getFilteredData(assetOptions.value);
+  if (isAdvertisement.value) await refreshAdvertisementWorkflow();
+}
+
+function goAssetGeneration() {
+  router.push("/cornerScape");
+}
+
+async function confirmAdvertisementAssets() {
+  if (!project.value?.id || !canConfirmAdvertisementAssets.value) return;
+  confirmingAdvertisementAssets.value = true;
+  try {
+    const { data } = await axios.post("/project/advertisement/confirmAssetPreparation", {
+      projectId: Number(project.value.id),
+      confirmed: true,
+    });
+    advertisementWorkflow.value = data;
+    window.$message.success($t("workbench.assets.adWorkflow.confirmed"));
+    router.push("/production");
+  } catch (e: any) {
+    window.$message.error(e?.message || $t("workbench.assets.adWorkflow.confirmFailed"));
+    await refreshAdvertisementWorkflow();
+  } finally {
+    confirmingAdvertisementAssets.value = false;
+  }
+}
+
 // 加载当前标签的数据
 async function loadCurrentTabData() {
   let type = "";
@@ -637,11 +728,13 @@ async function handleAdd(type: string) {
       const base64 = reader.result as string;
       await axios.post("/assets/uploadClip", {
         projectId: project.value?.id,
+        scriptId: advertisementScriptId.value ?? undefined,
         base64Data: base64,
         name: file.name,
       });
       window.$message.success($t("workbench.assets.uploadSuccess"));
-      getFilteredData(assetOptions.value);
+      await getFilteredData(assetOptions.value);
+      if (isAdvertisement.value) await refreshAdvertisementWorkflow();
     };
     reader.readAsDataURL(file);
   } else if (type == "audio") {
@@ -1323,6 +1416,46 @@ async function getBigImageUrl(row: Asset, fn: Function) {
 </script>
 
 <style lang="scss" scoped>
+.adWorkflowGate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--td-brand-color-3);
+  border-radius: 12px;
+  background: var(--td-brand-color-1);
+
+  .adWorkflowInfo {
+    min-width: 0;
+  }
+
+  .adWorkflowTitle {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--td-text-color-primary);
+  }
+
+  .adWorkflowDesc {
+    margin-top: 4px;
+    color: var(--td-text-color-secondary);
+  }
+
+  .adWorkflowStats {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+
+  .adWorkflowActions {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+}
+
 .assets {
   height: 100%;
   display: flex;
