@@ -699,6 +699,11 @@
           "title": "提示词"
         },
         "basedOnScript": "基于剧本",
+        "basedOnGeneralVideo": "通用视频",
+        "productionProfile": "制作类型",
+        "advertisement": "广告视频",
+        "projectIntro": "项目简介",
+        "projectIntroPh": "请输入广告/视频项目简介或 Brief",
         "mdFile": "视觉手册文件",
         "directorManual": "导演手册",
         "addDirectorManual": "新建导演手册",
@@ -713,6 +718,7 @@
       "msg": {
         "fetchFailed": "获取项目列表失败",
         "notFound": "未找到该项目!",
+        "generalVideoInitFailed": "通用视频生产单元初始化失败",
         "editSuccess": "编辑项目成功",
         "editFailed": "编辑项目失败",
         "addSuccess": "新增项目成功",
@@ -756,7 +762,9 @@
       },
       "type": {
         "novel": "基于小说原文",
-        "script": "基于小说剧本"
+        "script": "基于小说剧本",
+        "generalVideo": "通用视频",
+        "advertisement": "广告视频"
       }
     },
     "novel": {
