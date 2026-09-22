@@ -998,7 +998,9 @@
       "node": {
         "script": {
           "title": "劇本",
-          "editDialog": "編輯劇本"
+          "editDialog": "編輯劇本",
+          "adTitle": "廣告 Brief",
+          "adEditDialog": "編輯廣告 Brief"
         },
         "scriptPlan": {
           "title": "拍攝計畫",
@@ -1026,14 +1028,16 @@
           "notGenerated": "未生成",
           "originalAsset": "原資產",
           "derived": "衍生",
-          "noDerivedAssets": "無衍生資產"
+          "noDerivedAssets": "無衍生資產",
+          "adTitle": "廣告資產"
         },
         "poster": {
           "title": "影片封面",
           "coverCount": "{count} 張"
         },
         "workbench": {
-          "title": "影片工作區"
+          "title": "影片工作區",
+          "adTitle": "廣告成片工作台"
         }
       },
       "editImage": {
