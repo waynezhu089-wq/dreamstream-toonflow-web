@@ -479,6 +479,7 @@ import generateImage from "./components/generateImage.vue";
 import projectStore from "@/stores/project";
 import settingStore from "@/stores/setting";
 const { otherSetting } = storeToRefs(settingStore());
+const { project } = storeToRefs(projectStore());
 const router = useRouter();
 const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
 const advertisementScriptId = ref<number | null>(null);
@@ -524,8 +525,6 @@ onUnmounted(() => {
   stopPolling();
   stopImagePolling();
 });
-
-const { project } = storeToRefs(projectStore());
 
 const allThemeData = [
   {
