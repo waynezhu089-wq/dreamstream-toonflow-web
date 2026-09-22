@@ -23,7 +23,7 @@
           </div>
           <div>
             <t-tag shape="round">
-              {{ getProjectTypeLabel(project.projectType) }}
+              {{ getProjectTypeLabel(project) }}
             </t-tag>
           </div>
         </div>
@@ -137,9 +137,10 @@ async function openProject(projectId: string | undefined) {
   }
 }
 
-function getProjectTypeLabel(projectType: string) {
-  if (projectType === "novel") return $t("workbench.project.type.novel");
-  if (projectType === "general_video") return $t("workbench.project.type.generalVideo");
+function getProjectTypeLabel(item: { projectType: string; type?: string }) {
+  if (item.projectType === "novel") return $t("workbench.project.type.novel");
+  if (item.projectType === "general_video" && item.type === "advertisement") return $t("workbench.project.type.advertisement");
+  if (item.projectType === "general_video") return $t("workbench.project.type.generalVideo");
   return $t("workbench.project.type.script");
 }
 
