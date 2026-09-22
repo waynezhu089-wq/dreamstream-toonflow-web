@@ -2,7 +2,7 @@
   <t-card class="assets">
     <Handle :id="props.handleIds.target" type="target" :position="Position.Top" />
     <div class="titleBar dragHandle">
-      <div class="title">{{ $t("workbench.production.node.assets.title") }}</div>
+      <div class="title">{{ isAdvertisement ? $t("workbench.production.node.assets.adTitle") : $t("workbench.production.node.assets.title") }}</div>
     </div>
     <div class="content">
       <div class="cardGrid">
@@ -82,6 +82,7 @@ import { type AssetItem, type DeriveAsset } from "../utils/flowBuilder";
 import axios from "@/utils/axios";
 import useProjectStore from "@/stores/project";
 const { project } = storeToRefs(useProjectStore());
+const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
 const props = defineProps<{
   id: string;
   handleIds: {
