@@ -418,7 +418,12 @@
       "assetCenter": "Trung tâm tài nguyên",
       "settings": "Cài đặt",
       "jumpGithub": "Chuyển tới Github",
-      "feedbackQuestions": "Câu hỏi phản hồi"
+      "feedbackQuestions": "Câu hỏi phản hồi",
+      "adAssetPrep": "Chuẩn bị tài sản quảng cáo",
+      "adAssetBuild": "Tạo tài sản",
+      "adProduction": "Sản xuất quảng cáo",
+      "adProductionBlocked": "Hãy hoàn tất và xác nhận chuẩn bị tài sản quảng cáo trước",
+      "adWorkflowCheckFailed": "Không thể kiểm tra trạng thái quy trình quảng cáo"
     },
     "project": {
       "title": "Dự án của tôi",
@@ -960,7 +965,19 @@
       },
       "confirmCancellation": "Xác nhận hủy",
       "confirmAgain": "Xác nhận hủy? Sau khi hủy, AI phụ trợ sẽ tiếp tục yêu cầu khấu trừ.",
-      "sure": "Chắc chắn"
+      "sure": "Chắc chắn",
+      "adWorkflow": {
+        "title": "Chuẩn bị tài sản quảng cáo",
+        "desc": "Chuẩn bị tư liệu thật và tài sản nhân vật/bối cảnh cơ bản trước, sau đó xác nhận rồi mới vào sản xuất quảng cáo.",
+        "assetProgress": "Đã sẵn sàng {ready}/{total}",
+        "incomplete": "{count} tài sản chưa hoàn tất",
+        "assetsReady": "Tài sản đã có tư liệu sử dụng được",
+        "goAssetGeneration": "Tạo tài sản",
+        "confirmAndContinue": "Xác nhận tài sản và vào sản xuất quảng cáo",
+        "stateFailed": "Không thể tải trạng thái tài sản quảng cáo",
+        "confirmed": "Đã xác nhận chuẩn bị tài sản",
+        "confirmFailed": "Không thể xác nhận chuẩn bị tài sản"
+      }
     },
     "production": {
       "selectPlaceholder": "Vui lòng chọn tập",
@@ -1054,7 +1071,10 @@
         "confirmClear": "Xóa bộ nhớ",
         "confirmClearBody": "Bạn có chắc chắn muốn xóa {type} không?",
         "confirmClearBtn": "Xác nhận xóa",
-        "memoryCleared": "Đã xóa {type}"
+        "memoryCleared": "Đã xóa {type}",
+        "adWelcomeMessage": "Tôi là trợ lý sản xuất quảng cáo. Tài sản đã qua bước chuẩn bị, tôi sẽ đi theo quy trình quảng cáo chuẩn: kế hoạch đạo diễn, storyboard, kiểm duyệt và chuẩn bị tạo nội dung.",
+        "adStartPlanning": "Bắt đầu lập kế hoạch quảng cáo",
+        "adStartPlanningPrompt": "Dựa trên Brief quảng cáo và tài sản đã xác nhận, hãy bắt đầu quy trình sản xuất quảng cáo chuẩn. Kiểm tra mục tiêu, đối tượng, nền tảng, thời lượng, thông điệp chính và tài sản trước khi làm storyboard. Không bỏ qua công đoạn."
       },
       "wb": {
         "quickPreview": "Xem trước nhanh",
@@ -1305,7 +1325,9 @@
       "autoLayoutTB": "Tự động sắp chữ bố cục trên và dưới",
       "getFlowData": "Làm mới không gian làm việc",
       "confirm": "Xác nhận chuyển tập",
-      "confirmEpisodesSwitch": "Nhiệm vụ hiện tại vẫn đang được tiến hành. Việc chuyển các tập sẽ kết nối lại phiên. Bạn có muốn tiếp tục chuyển đổi không?"
+      "confirmEpisodesSwitch": "Nhiệm vụ hiện tại vẫn đang được tiến hành. Việc chuyển các tập sẽ kết nối lại phiên. Bạn có muốn tiếp tục chuyển đổi không?",
+      "guideSwitchProductionUnit": "Chuyển đơn vị sản xuất",
+      "guideSwitchProductionUnitBody": "Chuyển đơn vị sản xuất quảng cáo hiện tại tại đây."
     },
     "task": {
       "title": "Danh sách tác vụ",
