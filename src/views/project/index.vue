@@ -23,7 +23,7 @@
           </div>
           <div>
             <t-tag shape="round">
-              {{ project.projectType == "novel" ? $t(`workbench.project.type.novel`) : $t(`workbench.project.type.script`) }}
+              {{ getProjectTypeLabel(project.projectType) }}
             </t-tag>
           </div>
         </div>
@@ -116,8 +116,48 @@ async function openProject(projectId: string | undefined) {
   }
 
   project.value = item;
-  if (item.projectType === "novel") router.push(`/novel`);
-  else if (item.projectType === "script") router.push(`/script`);
+  if (item.projectType === "novel") {
+    router.push(`/novel`);
+  } else if (item.projectType === "script") {
+    router.push(`/script`);
+  } else if (item.projectType === "general_video") {
+    try {
+      await ensureGeneralVideoProductionUnit(item);
+      router.push(`/production`);
+    } catch (error: any) {
+      window.$message.error(error?.message ?? $t("workbench.project.msg.generalVideoInitFailed"));
+    }
+  }
+}
+
+function getProjectTypeLabel(projectType: string) {
+  if (projectType === "novel") return $t("workbench.project.type.novel");
+  if (projectType === "general_video") return $t("workbench.project.type.generalVideo");
+  return $t("workbench.project.type.script");
+}
+
+async function ensureGeneralVideoProductionUnit(item: {
+  id: string;
+  name: string;
+  intro: string;
+  type: string;
+}) {
+  const projectId = Number(item.id);
+  const { data: scripts } = await axios.post("/script/getScrptApi", { projectId });
+  if (Array.isArray(scripts) && scripts.length > 0) return scripts[0];
+
+  await axios.post("/script/addScript", {
+    projectId,
+    name: `${item.name} - ${$t("workbench.project.type.advertisement")}`,
+    content: item.intro || item.name,
+    assets: [],
+  });
+
+  const { data: createdScripts } = await axios.post("/script/getScrptApi", { projectId });
+  if (!Array.isArray(createdScripts) || createdScripts.length === 0) {
+    throw new Error($t("workbench.project.msg.generalVideoInitFailed"));
+  }
+  return createdScripts[0];
 }
 
 function openEdit(item: {
@@ -150,6 +190,7 @@ function editProjectFn(data: {
   videoRatio: string;
   imageModel: string;
   videoModel: string;
+  projectType: string;
   imageQuality: "1K" | "2K" | "4K" | "";
   mode: string;
 }) {
