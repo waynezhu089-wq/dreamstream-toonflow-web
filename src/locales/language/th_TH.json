@@ -481,6 +481,11 @@
           "title": "คำพูดที่รวดเร็ว"
         },
         "basedOnScript": "ขึ้นอยู่กับสคริปต์",
+        "basedOnGeneralVideo": "วิดีโอทั่วไป",
+        "productionProfile": "รูปแบบการผลิต",
+        "advertisement": "วิดีโอโฆษณา",
+        "projectIntro": "รายละเอียดโครงการ",
+        "projectIntroPh": "กรอกบรีฟโครงการโฆษณาหรือวิดีโอ",
         "mdFile": "ไฟล์คู่มือภาพ",
         "directorManual": "คู่มือกรรมการ",
         "addDirectorManual": "คู่มือกรรมการใหม่",
@@ -495,6 +500,7 @@
       "msg": {
         "fetchFailed": "ดึงรายการโปรเจกต์ล้มเหลว",
         "notFound": "ไม่พบโปรเจกต์นี้!",
+        "generalVideoInitFailed": "เริ่มต้นหน่วยการผลิตวิดีโอทั่วไปไม่สำเร็จ",
         "editSuccess": "แก้ไขโปรเจกต์สำเร็จ",
         "editFailed": "แก้ไขโปรเจกต์ล้มเหลว",
         "addSuccess": "สร้างโปรเจกต์สำเร็จ",
@@ -538,7 +544,9 @@
       },
       "type": {
         "novel": "อิงจากนวนิยายต้นฉบับ",
-        "script": "อิงจากบทนวนิยาย"
+        "script": "อิงจากบทนวนิยาย",
+        "generalVideo": "วิดีโอทั่วไป",
+        "advertisement": "วิดีโอโฆษณา"
       }
     },
     "novel": {
