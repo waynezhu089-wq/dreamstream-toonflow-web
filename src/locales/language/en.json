@@ -604,6 +604,11 @@
           "title": "prompt word"
         },
         "basedOnScript": "based on script",
+        "basedOnGeneralVideo": "General Video",
+        "productionProfile": "Production Profile",
+        "advertisement": "Advertisement",
+        "projectIntro": "Project Brief",
+        "projectIntroPh": "Enter the advertisement/video project brief",
         "mdFile": "visual manual file",
         "directorManual": "Director's Handbook",
         "addDirectorManual": "New director manual",
@@ -618,6 +623,7 @@
       "msg": {
         "fetchFailed": "Failed to fetch project list",
         "notFound": "Project not found!",
+        "generalVideoInitFailed": "Failed to initialize the general video production unit",
         "editSuccess": "Project edited successfully",
         "editFailed": "Failed to edit project",
         "addSuccess": "Project created successfully",
@@ -661,7 +667,9 @@
       },
       "type": {
         "novel": "Based on the original novel",
-        "script": "Based on novel script"
+        "script": "Based on novel script",
+        "generalVideo": "General Video",
+        "advertisement": "Advertisement"
       }
     },
     "novel": {
