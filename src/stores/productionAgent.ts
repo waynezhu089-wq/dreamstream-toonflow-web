@@ -211,6 +211,20 @@ function makeProductionAgentStore(projectId: string) {
             throttledFn();
             callback({ success: true, message: $t("storyboard.assets.derivativeAddSuccess") });
           });
+          s.on("replaceStoryboard", async (payload: { items: any[] }, callback) => {
+            try {
+              const { data } = await axios.post("/production/storyboard/replaceStoryboard", {
+                scriptId: episodesId.value,
+                projectId: projectId,
+                data: payload.items,
+              });
+              flowData.value.storyboard = data;
+              await setFlowData(episodesId.value);
+              callback?.({ success: true, message: `已替换为 ${data.length} 条分镜`, data });
+            } catch (e: any) {
+              callback?.({ success: false, error: e?.message || "整套替换分镜失败" });
+            }
+          });
         }
       },
       { immediate: true },
