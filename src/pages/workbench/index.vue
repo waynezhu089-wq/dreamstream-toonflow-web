@@ -88,7 +88,7 @@ const menuList = ref([
   // { type: "divider" },
 ]);
 
-const rightBtnList = ref([
+const legacyRightBtnList = [
   { type: "btn", path: "/novel", labelKey: "workbench.menu.novel", icon: "i-notebook", nodelOnly: true },
   { type: "btn", path: "/scriptAgent", labelKey: "workbench.menu.scriptAgent", icon: "i-color-filter", nodelOnly: true },
   { type: "btn", path: "/script", labelKey: "workbench.menu.scriptManage", icon: "i-document-folder" },
@@ -96,7 +96,16 @@ const rightBtnList = ref([
   { type: "btn", path: "/production", labelKey: "workbench.menu.production", icon: "i-carousel-video" },
   { type: "divider" },
   { type: "btn", path: "/assets", labelKey: "workbench.menu.assetCenter", icon: "i-receive" },
-]);
+];
+
+const advertisementRightBtnList = [
+  { type: "btn", path: "/assets", labelKey: "workbench.menu.adAssetPrep", icon: "i-receive" },
+  { type: "btn", path: "/cornerScape", labelKey: "workbench.menu.adAssetBuild", icon: "i-peoples-two" },
+  { type: "btn", path: "/production", labelKey: "workbench.menu.adProduction", icon: "i-carousel-video" },
+];
+
+const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
+const rightBtnList = computed(() => (isAdvertisement.value ? advertisementRightBtnList : legacyRightBtnList));
 
 const router = useRouter();
 const route = useRoute();
@@ -109,8 +118,26 @@ watch(
   },
 );
 
-function handleClick(menu: any) {
+async function handleClick(menu: any) {
   if (menu.needProject && !project.value) return;
+
+  if (isAdvertisement.value && menu.path === "/production" && project.value?.id) {
+    try {
+      const { data } = await axios.post("/project/advertisement/getWorkflowState", {
+        projectId: Number(project.value.id),
+      });
+      if (!data.ready) {
+        window.$message.warning($t("workbench.menu.adProductionBlocked"));
+        router.push("/assets");
+        activeMenu.value = "/assets";
+        return;
+      }
+    } catch (e: any) {
+      window.$message.error(e?.message || $t("workbench.menu.adWorkflowCheckFailed"));
+      return;
+    }
+  }
+
   router.push(menu.path);
   activeMenu.value = menu.path;
 }
