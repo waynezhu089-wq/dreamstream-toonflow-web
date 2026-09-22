@@ -123,7 +123,14 @@ async function openProject(projectId: string | undefined) {
   } else if (item.projectType === "general_video") {
     try {
       await ensureGeneralVideoProductionUnit(item);
-      router.push(`/production`);
+      if (item.type === "advertisement") {
+        const { data: workflow } = await axios.post("/project/advertisement/getWorkflowState", {
+          projectId: Number(item.id),
+        });
+        router.push(workflow.ready ? "/production" : "/assets");
+      } else {
+        router.push("/production");
+      }
     } catch (error: any) {
       window.$message.error(error?.message ?? $t("workbench.project.msg.generalVideoInitFailed"));
     }
