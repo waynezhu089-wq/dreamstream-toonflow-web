@@ -1132,7 +1132,9 @@
       "node": {
         "script": {
           "title": "Script",
-          "editDialog": "Edit Script"
+          "editDialog": "Edit Script",
+          "adTitle": "Advertisement Brief",
+          "adEditDialog": "Edit Advertisement Brief"
         },
         "scriptPlan": {
           "title": "Shooting Plan",
@@ -1162,14 +1164,16 @@
           "notGenerated": "Not Generated",
           "originalAsset": "Original Asset",
           "derived": "Derived",
-          "noDerivedAssets": "No derived assets"
+          "noDerivedAssets": "No derived assets",
+          "adTitle": "Advertisement Assets"
         },
         "poster": {
           "title": "Video Cover",
           "coverCount": "{count} Items"
         },
         "workbench": {
-          "title": "Video Workbench"
+          "title": "Video Workbench",
+          "adTitle": "Advertisement Finishing Workbench"
         }
       },
       "editImage": {
