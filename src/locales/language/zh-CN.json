@@ -1229,7 +1229,9 @@
       "node": {
         "script": {
           "title": "剧本",
-          "editDialog": "编辑剧本"
+          "editDialog": "编辑剧本",
+          "adTitle": "广告 Brief",
+          "adEditDialog": "编辑广告 Brief"
         },
         "scriptPlan": {
           "title": "导演计划",
@@ -1259,14 +1261,16 @@
           "notGenerated": "未生成",
           "originalAsset": "原资产",
           "derived": "衍生",
-          "noDerivedAssets": "无衍生资产"
+          "noDerivedAssets": "无衍生资产",
+          "adTitle": "广告资产"
         },
         "poster": {
           "title": "视频封面",
           "coverCount": "{count} 张"
         },
         "workbench": {
-          "title": "视频工作台"
+          "title": "视频工作台",
+          "adTitle": "广告成片工作台"
         }
       },
       "editImage": {
