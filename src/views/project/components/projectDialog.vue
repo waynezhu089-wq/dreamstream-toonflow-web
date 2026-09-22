@@ -17,13 +17,25 @@
               <t-select v-model="formState.projectType" :placeholder="$t('workbench.project.dialog.selectType')">
                 <t-option key="基于小说原文" :label="$t('workbench.project.dialog.basedOnNovel')" value="novel" />
                 <t-option key="基于剧本" :label="$t('workbench.project.dialog.basedOnScript')" value="script" />
+                <t-option key="通用视频" :label="$t('workbench.project.dialog.basedOnGeneralVideo')" value="general_video" />
               </t-select>
             </t-form-item>
             <t-form-item :label="$t('workbench.project.dialog.projectName')">
               <t-input v-model="formState.name" :placeholder="$t('workbench.project.dialog.projectNamePh')" />
             </t-form-item>
-            <t-form-item :label="$t('workbench.project.dialog.novelType')">
-              <t-input v-model="formState.type" :placeholder="$t('workbench.project.dialog.novelTypePh')" />
+            <t-form-item
+              :label="
+                formState.projectType === 'general_video'
+                  ? $t('workbench.project.dialog.productionProfile')
+                  : $t('workbench.project.dialog.novelType')
+              ">
+              <t-select
+                v-if="formState.projectType === 'general_video'"
+                v-model="formState.type"
+                :placeholder="$t('workbench.project.dialog.productionProfile')">
+                <t-option :label="$t('workbench.project.dialog.advertisement')" value="advertisement" />
+              </t-select>
+              <t-input v-else v-model="formState.type" :placeholder="$t('workbench.project.dialog.novelTypePh')" />
             </t-form-item>
             <t-form-item :label="$t('workbench.project.dialog.modelData')">
               <div class="ac" style="gap: 5px; width: 100%">
@@ -46,11 +58,20 @@
             <t-form-item :label="$t('workbench.project.dialog.videoRatio')">
               <t-select v-model="formState.videoRatio" :options="RATIO_OPTIONS" />
             </t-form-item>
-            <t-form-item :label="$t('workbench.project.dialog.novelIntro')">
+            <t-form-item
+              :label="
+                formState.projectType === 'general_video'
+                  ? $t('workbench.project.dialog.projectIntro')
+                  : $t('workbench.project.dialog.novelIntro')
+              ">
               <t-textarea
                 v-model="formState.intro"
                 :autosize="{ minRows: 3, maxRows: 6 }"
-                :placeholder="$t('workbench.project.dialog.novelIntroPh')" />
+                :placeholder="
+                  formState.projectType === 'general_video'
+                    ? $t('workbench.project.dialog.projectIntroPh')
+                    : $t('workbench.project.dialog.novelIntroPh')
+                " />
             </t-form-item>
           </t-form>
         </div>
@@ -408,6 +429,17 @@ const DEFAULT_FORM: () => ProjectFormData & { id: number; era: string; createTim
 
 // ===== 表单 =====
 const formState = ref(DEFAULT_FORM());
+
+watch(
+  () => formState.value.projectType,
+  (projectType, previousProjectType) => {
+    if (projectType === "general_video") {
+      formState.value.type = "advertisement";
+    } else if (previousProjectType === "general_video" && formState.value.type === "advertisement") {
+      formState.value.type = "";
+    }
+  },
+);
 
 function resetForm() {
   formState.value = DEFAULT_FORM();
