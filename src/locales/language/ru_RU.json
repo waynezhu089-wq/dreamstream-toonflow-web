@@ -994,7 +994,9 @@
       "node": {
         "script": {
           "title": "Сценарий",
-          "editDialog": "Редактировать сценарий"
+          "editDialog": "Редактировать сценарий",
+          "adTitle": "Рекламный бриф",
+          "adEditDialog": "Редактировать рекламный бриф"
         },
         "scriptPlan": {
           "title": "План съемок",
@@ -1021,14 +1023,16 @@
           "notGenerated": "Не сгенерировано",
           "originalAsset": "Оригинал",
           "derived": "Производные",
-          "noDerivedAssets": "Нет производных ассетов"
+          "noDerivedAssets": "Нет производных ассетов",
+          "adTitle": "Рекламные ассеты"
         },
         "poster": {
           "title": "Обложка видео",
           "coverCount": "{count} шт."
         },
         "workbench": {
-          "title": "Рабочий стол видео"
+          "title": "Рабочий стол видео",
+          "adTitle": "Монтаж рекламы"
         }
       },
       "editImage": {
