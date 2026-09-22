@@ -471,6 +471,11 @@
           "title": "lời nhắc"
         },
         "basedOnScript": "dựa trên kịch bản",
+        "basedOnGeneralVideo": "Video tổng quát",
+        "productionProfile": "Loại sản xuất",
+        "advertisement": "Video quảng cáo",
+        "projectIntro": "Mô tả dự án",
+        "projectIntroPh": "Nhập brief dự án quảng cáo/video",
         "mdFile": "tập tin hướng dẫn trực quan",
         "directorManual": "Sổ tay Giám đốc",
         "addDirectorManual": "Hướng dẫn đạo diễn mới",
@@ -485,6 +490,7 @@
       "msg": {
         "fetchFailed": "Lấy danh sách dự án thất bại",
         "notFound": "Không tìm thấy dự án này!",
+        "generalVideoInitFailed": "Không thể khởi tạo đơn vị sản xuất video tổng quát",
         "editSuccess": "Chỉnh sửa dự án thành công",
         "editFailed": "Chỉnh sửa dự án thất bại",
         "addSuccess": "Thêm dự án thành công",
@@ -528,7 +534,9 @@
       },
       "type": {
         "novel": "Dựa trên tiểu thuyết gốc",
-        "script": "Dựa trên kịch bản tiểu thuyết"
+        "script": "Dựa trên kịch bản tiểu thuyết",
+        "generalVideo": "Video tổng quát",
+        "advertisement": "Video quảng cáo"
       }
     },
     "novel": {
