@@ -646,7 +646,12 @@
       "assetCenter": "资产中心",
       "settings": "设置",
       "jumpGithub": "跳转Github",
-      "feedbackQuestions": "反馈问题"
+      "feedbackQuestions": "反馈问题",
+      "adAssetPrep": "广告资产准备",
+      "adAssetBuild": "资产生成",
+      "adProduction": "广告制作",
+      "adProductionBlocked": "请先完成并确认广告资产准备",
+      "adWorkflowCheckFailed": "广告工作流状态检查失败"
     },
     "project": {
       "title": "我的项目",
@@ -1204,7 +1209,19 @@
       },
       "confirmCancellation": "确定取消",
       "confirmAgain": "确认取消吗？取消之后后台AI会继续调取扣费",
-      "sure": "确定"
+      "sure": "确定",
+      "adWorkflow": {
+        "title": "广告资产准备",
+        "desc": "先建立真实素材与基础人物/场景资产，确认资产可用后再进入广告制作。",
+        "assetProgress": "资产准备 {ready}/{total}",
+        "incomplete": "{count} 个资产未完成",
+        "assetsReady": "资产已具备可用素材",
+        "goAssetGeneration": "进入资产生成",
+        "confirmAndContinue": "确认资产准备完成并进入广告制作",
+        "stateFailed": "广告资产状态读取失败",
+        "confirmed": "资产准备已确认",
+        "confirmFailed": "资产准备确认失败"
+      }
     },
     "production": {
       "selectPlaceholder": "请选择剧集",
@@ -1304,7 +1321,10 @@
         "confirmClear": "清除记忆",
         "confirmClearBody": "确定要清除{type}吗？",
         "confirmClearBtn": "确定清除",
-        "memoryCleared": "{type}已清除"
+        "memoryCleared": "{type}已清除",
+        "adWelcomeMessage": "我是广告制作助手。资产已经通过准备 Gate，我会按广告生产工序推进导演规划、分镜、审核与生成准备。",
+        "adStartPlanning": "开始广告策划",
+        "adStartPlanningPrompt": "请基于广告 Brief 和已确认的资产，按正常广告生产流程开始导演规划。先检查目标、受众、平台、时长、核心卖点与资产，再进入分镜；不要跳过工序。"
       },
       "wb": {
         "quickPreview": "快速预览",
@@ -1567,7 +1587,9 @@
       "autoLayoutTB": "自动排版-上下布局",
       "getFlowData": "刷新工作区",
       "confirm": "切换剧集确认",
-      "confirmEpisodesSwitch": "当前任务仍在进行中，切换剧集会重连会话，是否继续切换？"
+      "confirmEpisodesSwitch": "当前任务仍在进行中，切换剧集会重连会话，是否继续切换？",
+      "guideSwitchProductionUnit": "切换制作单元",
+      "guideSwitchProductionUnitBody": "在这里切换当前广告制作单元。"
     },
     "task": {
       "title": "任务列表",
