@@ -8,22 +8,40 @@ import { useThrottleFn } from "@vueuse/core";
 
 function makeProductionAgentStore(projectId: string) {
   return defineStore(`productionAgent-${projectId}`, () => {
-    const defMsg: ChatMessagesData[] = [
+    const isAdvertisement = computed(
+      () => projectStore().project?.projectType === "general_video" && projectStore().project?.type === "advertisement",
+    );
+    const defMsg = computed<ChatMessagesData[]>(() => [
       {
         id: "welcome",
         role: "assistant",
         content: [
-          { type: "text", status: "complete", data: $t("workbench.production.chatBox.welcomeMessage") },
+          {
+            type: "text",
+            status: "complete",
+            data: isAdvertisement.value
+              ? $t("workbench.production.chatBox.adWelcomeMessage")
+              : $t("workbench.production.chatBox.welcomeMessage"),
+          },
           {
             type: "suggestion",
             status: "complete",
-            data: [{ title: $t("workbench.production.chatBox.startMakingVideo"), prompt: $t("workbench.production.chatBox.startMakingVideoPrompt") }],
+            data: [
+              {
+                title: isAdvertisement.value
+                  ? $t("workbench.production.chatBox.adStartPlanning")
+                  : $t("workbench.production.chatBox.startMakingVideo"),
+                prompt: isAdvertisement.value
+                  ? $t("workbench.production.chatBox.adStartPlanningPrompt")
+                  : $t("workbench.production.chatBox.startMakingVideoPrompt"),
+              },
+            ],
           },
         ],
       },
-    ];
+    ]);
     onMounted(() => {
-      if (messages.value.length <= 0) messages.value = [...defMsg, ...messages.value];
+      if (messages.value.length <= 0) messages.value = [...defMsg.value, ...messages.value];
     });
 
     const flowData = ref<FlowData>({
@@ -492,7 +510,7 @@ function makeProductionAgentStore(projectId: string) {
         agentType: "productionAgent",
       });
       messages.value = [];
-      messages.value = [...defMsg, ...data];
+      messages.value = [...defMsg.value, ...data];
       loadingHistory.value = false;
     }
 
