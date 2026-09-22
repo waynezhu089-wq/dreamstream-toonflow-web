@@ -985,7 +985,9 @@
       "node": {
         "script": {
           "title": "Kịch bản",
-          "editDialog": "Chỉnh sửa kịch bản"
+          "editDialog": "Chỉnh sửa kịch bản",
+          "adTitle": "Brief quảng cáo",
+          "adEditDialog": "Chỉnh sửa Brief quảng cáo"
         },
         "scriptPlan": {
           "title": "Kế hoạch quay",
@@ -1012,14 +1014,16 @@
           "notGenerated": "Chưa tạo",
           "originalAsset": "Tài nguyên gốc",
           "derived": "Phái sinh",
-          "noDerivedAssets": "Không có tài nguyên phái sinh"
+          "noDerivedAssets": "Không có tài nguyên phái sinh",
+          "adTitle": "Tài sản quảng cáo"
         },
         "poster": {
           "title": "Ảnh bìa video",
           "coverCount": "{count} ảnh"
         },
         "workbench": {
-          "title": "Bàn làm việc Video"
+          "title": "Bàn làm việc Video",
+          "adTitle": "Bàn hoàn thiện quảng cáo"
         }
       },
       "editImage": {
