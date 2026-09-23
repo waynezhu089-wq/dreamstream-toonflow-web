@@ -75,6 +75,7 @@
 
 <script setup lang="ts">
 import axios from "@/utils/axios";
+import { currentAdvertisementUnit, advertisementLocation } from "@/utils/advertisementUnit";
 import setting from "@/components/setting/index.vue";
 import hello from "@/components/hello.vue";
 import projectStore from "@/stores/project";
@@ -122,13 +123,17 @@ async function handleClick(menu: any) {
   if (menu.needProject && !project.value) return;
 
   if (isAdvertisement.value && menu.path === "/production" && project.value?.id) {
+    const projectId = Number(project.value.id);
+    const scriptId = currentAdvertisementUnit(projectId, route.query.scriptId);
+    if (!scriptId) { await router.push("/assets"); return; }
     try {
       const { data } = await axios.post("/project/advertisement/getWorkflowState", {
-        projectId: Number(project.value.id),
+        projectId, scriptId,
       });
-      if (!data.ready) {
+      if (Number(project.value?.id) !== projectId || currentAdvertisementUnit(projectId, route.query.scriptId) !== scriptId) return;
+      if (data.ready !== true || data.scriptId !== scriptId || data.projectId !== projectId) {
         window.$message.warning($t("workbench.menu.adProductionBlocked"));
-        router.push("/assets");
+        router.push(advertisementLocation("/assets", projectId, scriptId));
         activeMenu.value = "/assets";
         return;
       }
@@ -138,7 +143,7 @@ async function handleClick(menu: any) {
     }
   }
 
-  router.push(menu.path);
+  router.push(isAdvertisement.value && ["/assets", "/cornerScape", "/production"].includes(menu.path) ? advertisementLocation(menu.path, project.value?.id, route.query.scriptId) : menu.path);
   activeMenu.value = menu.path;
 }
 

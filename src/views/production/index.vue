@@ -119,6 +119,7 @@ import rightChatBox from "./components/rightChatBox/index.vue";
 import { useLayout } from "./utils/dagre";
 import { useFlowBuilder } from "./utils/flowBuilder";
 import axios from "@/utils/axios";
+import { currentAdvertisementUnit, selectAdvertisementUnit, advertisementLocation } from "@/utils/advertisementUnit";
 import projectStore from "@/stores/project";
 
 const { project } = storeToRefs(projectStore());
@@ -244,20 +245,26 @@ async function waitForNodesReady(maxRetries = 60, delay = 100) {
   return false;
 }
 
+const advertisementRoute = useRoute();
+let advertisementViewActive = true;
+onBeforeUnmount(() => { advertisementViewActive = false; });
 onMounted(async () => {
   if (isAdvertisement.value && project.value?.id) {
     try {
-      const { data } = await axios.post("/project/advertisement/getWorkflowState", {
-        projectId: Number(project.value.id),
-      });
-      if (!data.ready) {
+      const projectId = Number(project.value.id);
+      const scriptId = currentAdvertisementUnit(projectId, advertisementRoute.query.scriptId);
+      if (!scriptId) { await router.replace("/assets"); return; }
+      const { data } = await axios.post("/project/advertisement/getWorkflowState", { projectId, scriptId });
+      if (!advertisementViewActive || Number(project.value?.id) !== projectId || currentAdvertisementUnit(projectId, advertisementRoute.query.scriptId) !== scriptId) return;
+      if (data.ready !== true || data.projectId !== projectId || data.scriptId !== scriptId) {
         window.$message.warning($t("workbench.menu.adProductionBlocked"));
-        await router.replace("/assets");
+        await router.replace(advertisementLocation("/assets", project.value?.id, advertisementRoute.query.scriptId));
         return;
       }
     } catch (e: any) {
+      if (!advertisementViewActive) return;
       window.$message.error(e?.message || $t("workbench.menu.adWorkflowCheckFailed"));
-      await router.replace("/assets");
+      await router.replace(advertisementLocation("/assets", project.value?.id, advertisementRoute.query.scriptId));
       return;
     }
   }
@@ -308,23 +315,36 @@ function handleEpisodesChange(value: unknown) {
   void (async () => {
     if (!(await confirmEpisodesSwitch())) return;
 
+    if (isAdvertisement.value) {
+      selectAdvertisementUnit(project.value?.id, nextEpisodesId);
+      await router.replace(advertisementLocation("/production", project.value?.id, nextEpisodesId));
+      return;
+    }
     episodesId.value = nextEpisodesId;
     await productionAgentStore().getFlowData();
   })();
 }
 
 async function getScriptData() {
+  const adProjectId = Number(project.value?.id);
+  const adScriptId = currentAdvertisementUnit(adProjectId, advertisementRoute.query.scriptId);
   //获取剧本
   const { data: scriptRes } = await axios.post("/script/getScrptApi", {
     projectId: project.value?.id,
     name: "",
   });
+  if (isAdvertisement.value && (!advertisementViewActive || Number(project.value?.id) !== adProjectId || currentAdvertisementUnit(adProjectId, advertisementRoute.query.scriptId) !== adScriptId)) return;
   episodesOptions.value = scriptRes.map((ep: any) => ({
     label: ep.name,
     value: ep.id,
   }));
   if (episodesOptions.value.length) {
-    episodesId.value = episodesOptions.value[0].value;
+    if (isAdvertisement.value) {
+      const selected = currentAdvertisementUnit(project.value?.id, advertisementRoute.query.scriptId);
+      if (!selected || !episodesOptions.value.some(unit => unit.value === selected)) { await router.replace("/assets"); return; }
+      episodesId.value = selected;
+      selectAdvertisementUnit(project.value?.id, selected);
+    } else episodesId.value = episodesOptions.value[0].value;
   }
   if (status.value !== "pending" && status.value !== "streaming") {
     episodesId.value && (await productionAgentStore().getFlowData());

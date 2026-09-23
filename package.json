@@ -8,6 +8,7 @@
     "build": "vue-tsc --build --force && vite build",
     "build-only": "vite build",
     "type-check": "vue-tsc --build --force",
+    "test:advertisement-asset-plan": "node --test tests/advertisement-asset-plan.test.cjs",
     "test:generate-flow-image": "node --test tests/generate-flow-image.test.cjs",
     "license": "node scripts/license.ts",
     "i18n:check": "node scripts/findUnusedI18n.ts"
@@ -47,6 +48,7 @@
     "vue-router": "^4.4.5"
   },
   "devDependencies": {
+    "jsdom": "~19.0.0",
     "@tdesign-vue-next/auto-import-resolver": "^0.1.6",
     "@tsconfig/node22": "^22.0.0",
     "@types/license-checker": "^25.0.6",

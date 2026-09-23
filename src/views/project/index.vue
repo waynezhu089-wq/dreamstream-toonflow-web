@@ -54,6 +54,7 @@
 import projectDialog from "./components/projectDialog.vue";
 import dayjs from "dayjs";
 import axios from "@/utils/axios";
+import { currentAdvertisementUnit, selectAdvertisementUnit, advertisementLocation } from "@/utils/advertisementUnit";
 import projectStore from "@/stores/project";
 import imageListCacheStore from "@/stores/imageListCache";
 
@@ -122,12 +123,16 @@ async function openProject(projectId: string | undefined) {
     router.push(`/script`);
   } else if (item.projectType === "general_video") {
     try {
-      await ensureGeneralVideoProductionUnit(item);
+      const unit = await ensureGeneralVideoProductionUnit(item);
+      if (project.value?.id !== item.id) return;
       if (item.type === "advertisement") {
+        if (!unit) { await router.push("/assets"); return; }
+        selectAdvertisementUnit(item.id, unit.id);
         const { data: workflow } = await axios.post("/project/advertisement/getWorkflowState", {
-          projectId: Number(item.id),
+          projectId: Number(item.id), scriptId: Number(unit.id),
         });
-        router.push(workflow.ready ? "/production" : "/assets");
+        if (project.value?.id !== item.id) return;
+        router.push(advertisementLocation(workflow.ready === true && workflow.scriptId === unit.id ? "/production" : "/assets", item.id, unit.id));
       } else {
         router.push("/production");
       }
@@ -152,7 +157,10 @@ async function ensureGeneralVideoProductionUnit(item: {
 }) {
   const projectId = Number(item.id);
   const { data: scripts } = await axios.post("/script/getScrptApi", { projectId });
-  if (Array.isArray(scripts) && scripts.length > 0) return scripts[0];
+  if (Array.isArray(scripts) && scripts.length > 0) {
+    if (item.type === "advertisement") return scripts.find((unit: any) => unit.id === currentAdvertisementUnit(projectId)) ?? (scripts.length === 1 ? scripts[0] : null);
+    return scripts[0];
+  }
 
   await axios.post("/script/addScript", {
     projectId,

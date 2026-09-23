@@ -1,40 +1,6 @@
 <template>
-  <div class="assets">
-    <div v-if="isAdvertisement" class="adWorkflowGate">
-      <div class="adWorkflowInfo">
-        <div class="adWorkflowTitle">{{ $t("workbench.assets.adWorkflow.title") }}</div>
-        <div class="adWorkflowDesc">{{ $t("workbench.assets.adWorkflow.desc") }}</div>
-        <div class="adWorkflowStats" v-if="advertisementWorkflow">
-          <t-tag theme="primary" variant="light">
-            {{ $t("workbench.assets.adWorkflow.assetProgress", {
-              ready: advertisementWorkflow.readyAssetCount,
-              total: advertisementWorkflow.assetCount,
-            }) }}
-          </t-tag>
-          <t-tag
-            v-if="advertisementWorkflow.incompleteAssets?.length"
-            theme="warning"
-            variant="light">
-            {{ $t("workbench.assets.adWorkflow.incomplete", { count: advertisementWorkflow.incompleteAssets.length }) }}
-          </t-tag>
-          <t-tag v-else-if="advertisementWorkflow.assetCount > 0" theme="success" variant="light">
-            {{ $t("workbench.assets.adWorkflow.assetsReady") }}
-          </t-tag>
-        </div>
-      </div>
-      <div class="adWorkflowActions">
-        <t-button variant="outline" @click="goAssetGeneration">
-          {{ $t("workbench.assets.adWorkflow.goAssetGeneration") }}
-        </t-button>
-        <t-button
-          theme="success"
-          :disabled="!canConfirmAdvertisementAssets"
-          :loading="confirmingAdvertisementAssets"
-          @click="confirmAdvertisementAssets">
-          {{ $t("workbench.assets.adWorkflow.confirmAndContinue") }}
-        </t-button>
-      </div>
-    </div>
+  <AdvertisementAssetPlan v-if="isAdvertisement && !props.selectorMode" :key="String(project?.id)" :projectId="Number(project?.id)" />
+  <div v-else class="assets">
     <div class="data">
       <t-tabs v-model="assetOptions" @change="selectAssetOptions">
         <t-tab-panel v-for="(item, index) in themeData" :key="index" :value="item.value">
@@ -469,6 +435,8 @@
 
 <script setup lang="ts">
 import dayjs from "dayjs";
+import AdvertisementAssetPlan from "./advertisement/AdvertisementAssetPlan.vue";
+import { currentAdvertisementUnit } from "@/utils/advertisementUnit";
 import modelSelect from "@/components/modelSelect.vue";
 import { useFileDialog } from "@vueuse/core";
 import axios from "@/utils/axios";
@@ -482,15 +450,8 @@ const { otherSetting } = storeToRefs(settingStore());
 const { project } = storeToRefs(projectStore());
 const router = useRouter();
 const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
-const advertisementScriptId = ref<number | null>(null);
-const advertisementWorkflow = ref<any>(null);
-const confirmingAdvertisementAssets = ref(false);
-const canConfirmAdvertisementAssets = computed(
-  () =>
-    Boolean(advertisementWorkflow.value) &&
-    advertisementWorkflow.value.assetCount > 0 &&
-    advertisementWorkflow.value.incompleteAssets?.length === 0,
-);
+const route = useRoute();
+const advertisementScriptId = computed(() => isAdvertisement.value ? currentAdvertisementUnit(project.value?.id, route.query.scriptId) : null);
 
 const props = withDefaults(
   defineProps<{
@@ -517,8 +478,7 @@ const audioFormData = ref({
 });
 
 onMounted(async () => {
-  if (isAdvertisement.value) await refreshAdvertisementWorkflow();
-  await loadCurrentTabData();
+  if (!isAdvertisement.value || props.selectorMode) await loadCurrentTabData();
 });
 
 onUnmounted(() => {
@@ -632,47 +592,8 @@ async function getFilteredData(type: string) {
     loading.value = false;
   }
 }
-async function refreshAdvertisementWorkflow() {
-  if (!isAdvertisement.value || !project.value?.id) return;
-  try {
-    const { data } = await axios.post("/project/advertisement/getWorkflowState", {
-      projectId: Number(project.value.id),
-    });
-    advertisementWorkflow.value = data;
-    advertisementScriptId.value = data.scriptId ?? null;
-  } catch (e: any) {
-    advertisementWorkflow.value = null;
-    advertisementScriptId.value = null;
-    window.$message.error(e?.message || $t("workbench.assets.adWorkflow.stateFailed"));
-  }
-}
-
 async function handleAssetsChanged() {
   await getFilteredData(assetOptions.value);
-  if (isAdvertisement.value) await refreshAdvertisementWorkflow();
-}
-
-function goAssetGeneration() {
-  router.push("/cornerScape");
-}
-
-async function confirmAdvertisementAssets() {
-  if (!project.value?.id || !canConfirmAdvertisementAssets.value) return;
-  confirmingAdvertisementAssets.value = true;
-  try {
-    const { data } = await axios.post("/project/advertisement/confirmAssetPreparation", {
-      projectId: Number(project.value.id),
-      confirmed: true,
-    });
-    advertisementWorkflow.value = data;
-    window.$message.success($t("workbench.assets.adWorkflow.confirmed"));
-    router.push("/production");
-  } catch (e: any) {
-    window.$message.error(e?.message || $t("workbench.assets.adWorkflow.confirmFailed"));
-    await refreshAdvertisementWorkflow();
-  } finally {
-    confirmingAdvertisementAssets.value = false;
-  }
 }
 
 // 加载当前标签的数据
