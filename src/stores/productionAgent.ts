@@ -1,4 +1,5 @@
 import axios from "@/utils/axios";
+import { storyboardProductionFields } from "@/utils/storyboardProduction";
 import projectStore from "@/stores/project";
 import settingStore from "@/stores/setting";
 import { useChat } from "@/utils/useChat";
@@ -212,6 +213,7 @@ function makeProductionAgentStore(projectId: string) {
           });
           s.on("addStoryboard", async (data, callback) => {
             const insertVal = {
+              ...storyboardProductionFields(data),
               prompt: data.prompt || "",
               duration: Number(data.duration) || 0,
               track: data.track || "",
@@ -492,6 +494,7 @@ function makeProductionAgentStore(projectId: string) {
       flowData.value.storyboard.forEach((item) => {
         const updated = data.find((d: Storyboard) => d.prompt == item.prompt && d.duration == item.duration && d.videoDesc == item.videoDesc);
         if (updated) {
+          Object.assign(item, storyboardProductionFields(updated));
           item.id = updated.id;
           item.trackId = updated.trackId;
           item.src = updated.src;

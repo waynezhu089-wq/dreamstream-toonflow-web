@@ -1,3 +1,4 @@
+import type { StoryboardProduction } from "@/utils/storyboardProduction";
 import type { Ref } from "vue";
 import { computed } from "vue";
 
@@ -41,7 +42,7 @@ export interface AssetItem {
   errorReason?: string;
 }
 
-export interface Storyboard {
+export interface Storyboard extends StoryboardProduction {
   id?: number;
   duration?: number;
   prompt: string;
