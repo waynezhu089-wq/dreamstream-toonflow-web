@@ -29,6 +29,7 @@
           <fileManagement v-if="activeMenu === 'fileManagement'" />
           <skillManagement v-if="activeMenu === 'skillManagement'" />
           <devConfig v-if="activeMenu === 'devConfig'" />
+          <ModelPresets v-if="activeMenu === 'modelPresets'" />
           <modelMap v-if="activeMenu === 'modelMap'" />
         </div>
       </div>
@@ -55,9 +56,11 @@ import fileManagement from "./components/fileManagement.vue";
 import skillManagement from "./components/skillManagement.vue";
 import devConfig from "./components/devConfig.vue";
 import promptManage from "./components/promptManage.vue";
+import ModelPresets from "@/components/ModelPresets.vue";
 import modelMap from "./components/modelMap.vue";
 
 const menuItems = [
+  { key: "modelPresets", label: "模型预设", icon: "i-computer" },
   { key: "ui", label: "settings.menu.ui", icon: "i-theme" },
   { key: "language", label: "settings.menu.language", icon: "i-translate" },
   { key: "vendorConfig", label: "settings.menu.vendorConfig", icon: "i-computer" },

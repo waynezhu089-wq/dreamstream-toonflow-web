@@ -95,18 +95,19 @@ async function openProject(projectId: string | undefined) {
 
   if (!item) return window.$message.error($t("workbench.project.msg.notFound"));
 
-  if (!item.imageModel || !item.videoModel) {
+  const advertisement = item.projectType === "general_video" && item.type === "advertisement";
+  if (!advertisement && (!item.imageModel || !item.videoModel)) {
     window.$message.warning($t("workbench.project.msg.modelProviderDisabled"));
     return openEdit(item);
   }
 
   try {
-    if (item.imageModel) {
+    if (!advertisement && item.imageModel) {
       await axios.post("/modelSelect/getModelDetail", {
         modelId: item.imageModel,
       });
     }
-    if (item.videoModel) {
+    if (!advertisement && item.videoModel) {
       await axios.post("/modelSelect/getModelDetail", {
         modelId: item.videoModel,
       });

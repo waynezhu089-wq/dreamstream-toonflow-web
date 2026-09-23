@@ -45,6 +45,7 @@ function fixture(t, initial = []) {
     const source = file.endsWith('.vue') ? compileScript(parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor, { id: 'asset-plan', inlineTemplate: true }).content : fs.readFileSync(file, 'utf8');
     const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true }, fileName: file + '.ts' }).outputText;
     new Function('require', 'module', 'exports', code)(name => {
+      if (name === '@/components/ModelPresets.vue') return { template: '<div />' };
       if (name === '@/utils/axios') return { post };
       if (name === 'vue-router') return { useRoute: () => route, useRouter: () => router };
       if (name.startsWith('@/')) return load(path.join(root, 'src', name.slice(2) + '.ts'));

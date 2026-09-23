@@ -11,7 +11,8 @@
     "test:advertisement-asset-plan": "node --test tests/advertisement-asset-plan.test.cjs",
     "test:generate-flow-image": "node --test tests/generate-flow-image.test.cjs",
     "license": "node scripts/license.ts",
-    "i18n:check": "node scripts/findUnusedI18n.ts"
+    "i18n:check": "node scripts/findUnusedI18n.ts",
+    "test:model-presets": "node --test tests/model-presets.test.cjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",

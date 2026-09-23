@@ -37,6 +37,7 @@
               </t-select>
               <t-input v-else v-model="formState.type" :placeholder="$t('workbench.project.dialog.novelTypePh')" />
             </t-form-item>
+            <p v-if="formState.projectType === 'general_video' && formState.type === 'advertisement'">广告可以先不选模型；空项自动继承广告默认预设，生成时再检查。可在“设置 → 模型预设”配置。</p>
             <t-form-item :label="$t('workbench.project.dialog.modelData')">
               <div class="ac" style="gap: 5px; width: 100%">
                 <modelSelect v-model="formState.imageModel" type="image" />
@@ -451,16 +452,17 @@ function handleCancel() {
 }
 
 function handleOk() {
+  const advertisement = formState.value.projectType === "general_video" && formState.value.type === "advertisement";
   if (!formState.value.name) return window.$message.warning($t("workbench.project.msg.enterProjectName"));
   if (!formState.value.type) return window.$message.warning($t("workbench.project.msg.enterProjectType"));
-  if (!formState.value.imageModel) return window.$message.warning($t("workbench.project.msg.enterImageModel"));
-  if (!formState.value.videoModel) return window.$message.warning($t("workbench.project.msg.enterVideoModel"));
+  if (!advertisement && !formState.value.imageModel) return window.$message.warning($t("workbench.project.msg.enterImageModel"));
+  if (!advertisement && !formState.value.videoModel) return window.$message.warning($t("workbench.project.msg.enterVideoModel"));
   if (!formState.value.artStyle) return window.$message.warning($t("workbench.project.msg.enterArtStyle"));
   if (!formState.value.directorManual) return window.$message.warning($t("workbench.project.msg.directorManual"));
   if (!formState.value.videoRatio) return window.$message.warning($t("workbench.project.msg.enterVideoRatio"));
   if (!formState.value.intro) return window.$message.warning($t("workbench.project.msg.enterProjectIntro"));
-  if (!formState.value.imageQuality) return window.$message.warning($t("workbench.project.msg.enterProjectQuality"));
-  if (!formState.value.mode) return window.$message.warning($t("workbench.project.msg.selectMode"));
+  if (!advertisement && !formState.value.imageQuality) return window.$message.warning($t("workbench.project.msg.enterProjectQuality"));
+  if (!advertisement && !formState.value.mode) return window.$message.warning($t("workbench.project.msg.selectMode"));
   if (isEdit.value) {
     emit("edit", {
       id: formState.value.id as unknown as string,

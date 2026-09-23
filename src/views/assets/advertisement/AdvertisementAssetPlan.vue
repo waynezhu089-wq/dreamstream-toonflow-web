@@ -1,5 +1,6 @@
 <template>
   <section class="ad-plan" aria-label="广告资产准备">
+    <details><summary>本项目模型配置（可稍后设置）</summary><ModelPresets :project-id="Number(projectId)" /></details>
     <header class="heading">
       <div><h1>广告资产准备</h1><p>列出这条广告需要的素材，准备齐全后再进入广告制作。</p></div>
       <label class="unit">当前广告制作单元
@@ -67,6 +68,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import ModelPresets from "@/components/ModelPresets.vue";
 import { computed, ref, watch, nextTick, onScopeDispose } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import axios from "@/utils/axios";
