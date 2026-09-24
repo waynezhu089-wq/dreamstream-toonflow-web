@@ -23,6 +23,7 @@
 
               <div class="frameCard">
                 <t-button v-if="project?.projectType === 'general_video' && project?.type === 'advertisement' && item.productionMode === 'REAL_AI_COMPOSITE' && item.primaryAssetId" size="small" @click.stop="compositeShot = item">背景 + 真实素材合成</t-button>
+                <t-button v-if="project?.projectType === 'general_video' && project?.type === 'advertisement' && item.id && item.productionMode !== 'REAL_ASSET_DIRECT'" size="small" variant="outline" @click.stop="skillShot = item">图片 Prompt Skill</t-button>
                 <div
                   class="frameImage"
                   :style="{
@@ -110,6 +111,7 @@
     </div>
     <editImage v-model="visible" v-if="visible" :flowData="currentRow" type="storyboard" @save="save" />
     <CompositeAttempt v-if="compositeShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="compositeShot.id!" :primary-asset-id="compositeShot.primaryAssetId!" :capability-id="compositeShot.capabilityId" @close="compositeShot = null" @completed="applyCompositeState" @pending="applyCompositeState" />
+    <ImagePromptSkill v-if="skillShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="skillShot.id!" :current-prompt="skillShot.prompt ?? ''" :prompt-skill-id="skillShot.promptSkillId" :prompt-skill-version="skillShot.promptSkillVersion" @close="skillShot = null" @applied="applySkillPrompt" />
     <t-image-viewer
       v-model:visible="previewVisible"
       v-if="previewVisible"
@@ -124,6 +126,7 @@
 import { useLocalStorage } from "@vueuse/core";
 import editImage from "../components/editImage/index.vue";
 import CompositeAttempt from "../components/CompositeAttempt.vue";
+import ImagePromptSkill from "../components/ImagePromptSkill.vue";
 import { LoadingPlugin } from "tdesign-vue-next";
 import { Handle, Position, type Edge } from "@vue-flow/core";
 import axios from "@/utils/axios";
@@ -144,11 +147,16 @@ const props = defineProps<{
 
 const storyboard = defineModel<Storyboard[]>({ required: true });
 const compositeShot = ref<Storyboard | null>(null);
+const skillShot = ref<Storyboard | null>(null);
 function applyCompositeState(result: { id: number; src: string | null; state: string; reason: string }) {
   const row = storyboard.value.find(s => s.id === result.id);
   if (row) Object.assign(row, result);
 }
-watch(() => [project.value?.id, episodesId.value], () => { compositeShot.value = null; });
+function applySkillPrompt(result: Storyboard) {
+  const row = storyboard.value.find(s => s.id === result.id);
+  if (row) Object.assign(row, result);
+}
+watch(() => [project.value?.id, episodesId.value], () => { compositeShot.value = null; skillShot.value = null; });
 
 const visible = ref(false);
 const previewVisible = ref(false);

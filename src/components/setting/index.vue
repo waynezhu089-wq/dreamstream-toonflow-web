@@ -28,6 +28,7 @@
           <memoryConfig v-if="activeMenu === 'memoryConfig'" />
           <fileManagement v-if="activeMenu === 'fileManagement'" />
           <skillManagement v-if="activeMenu === 'skillManagement'" />
+          <SkillLibrary v-if="activeMenu === 'skillLibrary'" />
           <devConfig v-if="activeMenu === 'devConfig'" />
           <ModelPresets v-if="activeMenu === 'modelPresets'" />
           <CapabilityLibrary v-if="activeMenu === 'capabilityLibrary'" />
@@ -59,9 +60,11 @@ import devConfig from "./components/devConfig.vue";
 import promptManage from "./components/promptManage.vue";
 import ModelPresets from "@/components/ModelPresets.vue";
 import CapabilityLibrary from "@/components/CapabilityLibrary.vue";
+import SkillLibrary from "@/components/SkillLibrary.vue";
 import modelMap from "./components/modelMap.vue";
 
 const menuItems = [
+  { key: "skillLibrary", label: "Skill Library", icon: "i-ring" },
   { key: "capabilityLibrary", label: "Capability Library", icon: "i-api" },
   { key: "modelPresets", label: "模型预设", icon: "i-computer" },
   { key: "ui", label: "settings.menu.ui", icon: "i-theme" },
@@ -70,7 +73,7 @@ const menuItems = [
   { key: "modelMap", label: "settings.menu.modelMap", icon: "i-computer" },
   { key: "agentConfog", label: "settings.menu.agentConfig", icon: "i-color-filter" },
   { key: "promptManage", label: "settings.menu.promptManage", icon: "i-tips" },
-  { key: "skillManagement", label: "settings.menu.skillsSkillsManagement", icon: "i-ring" },
+  { key: "skillManagement", label: "Legacy / Advanced Raw Skill Editor", icon: "i-ring" },
   { key: "memoryConfig", label: "settings.menu.memoryConfig", icon: "i-memory-card-one" },
   { key: "loginConfig", label: "settings.menu.loginConfig", icon: "i-lock" },
   { key: "dbConfig", label: "settings.menu.dbConfig", icon: "i-data" },
