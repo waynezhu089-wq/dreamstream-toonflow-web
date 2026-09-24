@@ -109,7 +109,7 @@
       </div>
     </div>
     <editImage v-model="visible" v-if="visible" :flowData="currentRow" type="storyboard" @save="save" />
-    <CompositeAttempt v-if="compositeShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="compositeShot.id!" :primary-asset-id="compositeShot.primaryAssetId!" @close="compositeShot = null" @completed="applyCompositeState" @pending="applyCompositeState" />
+    <CompositeAttempt v-if="compositeShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="compositeShot.id!" :primary-asset-id="compositeShot.primaryAssetId!" :capability-id="compositeShot.capabilityId" @close="compositeShot = null" @completed="applyCompositeState" @pending="applyCompositeState" />
     <t-image-viewer
       v-model:visible="previewVisible"
       v-if="previewVisible"

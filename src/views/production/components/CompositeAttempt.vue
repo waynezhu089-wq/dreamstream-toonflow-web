@@ -40,7 +40,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from "vue";
 import axios from "@/utils/axios";
-const props = defineProps<{ projectId: number; scriptId: number; storyboardId: number; primaryAssetId: number }>();
+const props = defineProps<{ projectId: number; scriptId: number; storyboardId: number; primaryAssetId: number; capabilityId?: string | null }>();
 const emit = defineEmits<{ close: []; completed: [value: { id: number; src: string; state: string; reason: string }]; pending: [value: { id: number; src: null; state: string; reason: string }] }>();
 type Corner = "topLeft" | "topRight" | "bottomRight" | "bottomLeft";
 const corners: { key: Corner; label: string }[] = [{ key: "topLeft", label: "左上" }, { key: "topRight", label: "右上" }, { key: "bottomRight", label: "右下" }, { key: "bottomLeft", label: "左下" }];
@@ -71,7 +71,7 @@ async function read(epoch: number) {
 async function start() {
   const epoch = generation; pending.value = true; error.value = "";
   try {
-    const response = await axios.post("/production/storyboard/composite/start", { ...scope(), primaryAssetId: props.primaryAssetId, backgroundCapabilityId: "comfy.z-image-turbo.txt2img.v1", prompt: prompt.value, width: width.value, height: height.value, seed: seed.value });
+    const response = await axios.post("/production/storyboard/composite/start", { ...scope(), primaryAssetId: props.primaryAssetId, backgroundCapabilityId: props.capabilityId || "comfy.z-image-turbo.txt2img.v1", prompt: prompt.value, width: width.value, height: height.value, seed: seed.value });
     if (epoch !== generation) return;
     quad.value = emptyQuad(); confirmed.value = false; accept(response.data);
     timer = setTimeout(() => read(epoch), 1500);

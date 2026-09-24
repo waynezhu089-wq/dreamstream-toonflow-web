@@ -13,7 +13,8 @@
     "license": "node scripts/license.ts",
     "i18n:check": "node scripts/findUnusedI18n.ts",
     "test:model-presets": "node --test tests/model-presets.test.cjs",
-    "test:storyboard-production": "node --test tests/storyboard-production.test.cjs"
+    "test:storyboard-production": "node --test tests/storyboard-production.test.cjs",
+    "test:capability-library": "node --test --test-force-exit tests/capability-library.test.cjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
