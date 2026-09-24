@@ -39,6 +39,10 @@
         <t-button size="small" :disabled="!selectedExact" :loading="busy" @click="saveSelection">使用此 Skill</t-button>
       </section>
       <section>
+        <t-button variant="outline" @click="derivedOpen = !derivedOpen">沉淀当前 Prompt 为 Skill</t-button>
+        <SkillBuilderPanel v-if="derivedOpen" mode="derived" skill-type="IMAGE_PROMPT" :project-id="projectId" :script-id="scriptId" :storyboard-id="storyboardId" @saved="onDerivedSaved" />
+      </section>
+      <section>
         <h3>Shot Override</h3>
         <p>只保存这一镜的改动要求；若从项目继承 V1，不在镜头里复制 V1。</p>
         <textarea v-model="shotOverride" rows="3" placeholder="更明亮、更自然，保持真实 UI 约束" />
@@ -63,12 +67,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import axios from "@/utils/axios";
+import SkillBuilderPanel from "@/components/SkillBuilderPanel.vue";
 const props = defineProps<{ projectId: number; scriptId: number; storyboardId: number; currentPrompt: string; promptSkillId?: string | null; promptSkillVersion?: string | null }>();
 const emit = defineEmits<{ close: []; applied: [value: any] }>();
 type Choice = { skillId: string; skillVersion: string; displayName: string; reason: string };
 const resolved = ref<any>(null), preview = ref<any>(null), error = ref(""), notice = ref(""), busy = ref(false);
 const recommendation = ref<{ recommended: Choice | null; otherCompatibleSkills: Choice[] }>({ recommended: null, otherCompatibleSkills: [] });
 const families = ref<any[]>([]), shotOverride = ref(""), selectedExact = ref(""), selectionScope = ref<"SHOT" | "PROJECT">("SHOT"), applyConfirmed = ref(false);
+const derivedOpen = ref(false);
 const api = async (path: string, body: any = {}) => (await axios.post(`/skills/${path}`, body)).data;
 const scope = () => ({ projectId: props.projectId, scriptId: props.scriptId, storyboardId: props.storyboardId });
 const shotKey = () => `project:${props.projectId}:script:${props.scriptId}:storyboard:${props.storyboardId}`;
@@ -120,7 +126,8 @@ async function apply() {
   try { const result = await api("compile/apply", { compileId: preview.value.compileId, ...scope() }); emit("applied", result.storyboard); await load(); notice.value = "完整 Prompt 已应用；镜头图片状态按现有分镜修改规则更新。"; }
   catch (e) { showError(e); } finally { busy.value = false; }
 }
-watch(() => [props.projectId, props.scriptId, props.storyboardId], () => { void load(); }, { immediate: true });
+async function onDerivedSaved(value: any) { derivedOpen.value = false; await load(); notice.value = `${value.family.displayName} 已保存为 Draft V1；需要人工激活后才可绑定。`; }
+watch(() => [props.projectId, props.scriptId, props.storyboardId], () => { derivedOpen.value = false; void load(); }, { immediate: true });
 </script>
 
 <style>

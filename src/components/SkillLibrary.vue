@@ -2,11 +2,14 @@
   <div class="skill-library">
     <div class="toolbar">
       <strong>Skill Library</strong>
-      <t-button size="small" @click="beginNew('new')">新建 Skill</t-button>
-      <t-button size="small" variant="outline" @click="beginNew('derived')">从指定项目内容创建</t-button>
+      <t-button size="small" @click="mode = 'quick'">新建 Skill</t-button>
       <t-button size="small" variant="outline" @click="checkReverse">从参考图创建 Skill</t-button>
       <t-button size="small" variant="text" @click="refresh">刷新</t-button>
     </div>
+    <details class="advanced-tools"><summary>Advanced · 工程工具</summary>
+      <t-button size="small" variant="outline" @click="beginNew('new')">手动创建</t-button>
+      <t-button size="small" variant="outline" @click="beginNew('derived')">从指定项目内容创建</t-button>
+    </details>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="notice" role="status">{{ notice }}</p>
     <div class="columns">
@@ -21,7 +24,8 @@
         <t-empty v-if="!families.length" description="还没有正式 Skill；可新建 Draft V1" />
       </div>
       <div class="detail">
-        <template v-if="mode === 'new' || mode === 'copy' || mode === 'derived'">
+        <SkillBuilderPanel v-if="mode === 'quick'" mode="new" @saved="onBuilderSaved" />
+        <template v-else-if="mode === 'new' || mode === 'copy' || mode === 'derived'">
           <h3>{{ mode === 'new' ? '新建 Skill · Manual' : mode === 'copy' ? '复制为新 Skill · Draft V1' : '从指定来源提炼 Skill Draft' }}</h3>
           <label>Skill ID <input v-model.trim="familyForm.skillId" placeholder="image-prompt.tech-product-cinematic" /></label>
           <label>名称 <input v-model.trim="familyForm.displayName" placeholder="科技产品电影感图片 Prompt" /></label>
@@ -49,12 +53,19 @@
           <div class="actions">
             <label>版本 <select v-model="selectedVersion" @change="openVersion"><option v-for="version in detail.versions" :key="version.version" :value="version.version">{{ version.version }} · {{ version.status }}</option></select></label>
             <t-button size="small" variant="outline" @click="openVersion">查看</t-button>
-            <t-button size="small" variant="outline" @click="createNextVersion">创建新版本</t-button>
-            <t-button size="small" variant="outline" @click="beginNew('copy')">复制为新 Skill</t-button>
-            <t-button size="small" variant="outline" @click="openBindings">Bindings</t-button>
           </div>
           <template v-if="versionDetail">
             <p>状态：{{ versionDetail.status }} · 来源：{{ versionDetail.sourceType }} · 更新：{{ time(versionDetail.updatedAt) }}</p>
+            <t-button v-if="mode !== 'bindings' && versionDetail.status === 'DRAFT'" size="small" :loading="busy" @click="activate">人工激活 {{ selectedVersion }}</t-button>
+            <SkillBuilderPanel v-if="mode !== 'bindings' && versionDetail.status === 'DRAFT'" mode="draft" :skill-type="detail.family.skillType" :skill-id="selectedSkillId" :version="selectedVersion" :base-content="versionDetail.content" @saved="onBuilderSaved" />
+            <SkillBuilderPanel v-if="mode !== 'bindings' && versionDetail.status === 'ACTIVE'" mode="improve" :skill-type="detail.family.skillType" :skill-id="selectedSkillId" :version="selectedVersion" :base-content="versionDetail.content" :has-draft="hasDraft" @saved="onBuilderSaved" />
+            <p v-if="mode !== 'bindings' && versionDetail.status === 'ACTIVE' && hasDraft">已有 {{ pendingDraft?.version }} 正在编辑。<t-button size="small" @click="continueDraft">继续编辑 {{ pendingDraft?.version }}</t-button></p>
+            <details class="advanced-tools"><summary>Advanced · 版本、结构化编辑与 Bindings</summary>
+              <div class="actions">
+                <t-button size="small" variant="outline" :disabled="hasDraft" @click="createNextVersion">手动创建新版本</t-button>
+                <t-button size="small" variant="outline" @click="beginNew('copy')">复制为新 Skill</t-button>
+                <t-button size="small" variant="outline" @click="openBindings">手动 Bindings</t-button>
+              </div>
             <template v-if="mode === 'bindings'">
               <h4>绑定当前 Skill</h4>
               <p>新绑定只能选择 ACTIVE 版本；旧项目的 DEPRECATED 精确引用仍可读取。Override-only 不复制 Skill 版本。</p>
@@ -82,20 +93,22 @@
             <template v-else>
               <div class="actions">
                 <t-button v-if="versionDetail.status === 'DRAFT'" size="small" :loading="busy" @click="saveDraft">保存 Draft</t-button>
-                <t-button v-if="versionDetail.status === 'DRAFT'" size="small" :loading="busy" @click="activate">人工激活 {{ selectedVersion }}</t-button>
                 <t-button v-if="versionDetail.status === 'ACTIVE'" size="small" theme="warning" variant="outline" @click="deprecate">弃用版本</t-button>
                 <t-button size="small" variant="outline" @click="previewRuntime">预览 Runtime Skill</t-button>
               </div>
               <p>Template：{{ versionDetail.templateId }}。只有 Draft 可编辑；Active 内容不可静默修改。</p>
-              <label>用途 <textarea v-model="content.purpose" rows="3" :disabled="versionDetail.status !== 'DRAFT'" /></label>
-              <div v-for="field in commonFields" :key="field.key"><label>{{ field.label }}（每行一条）<textarea :value="(content[field.key] || []).join('\n')" rows="3" :disabled="versionDetail.status !== 'DRAFT'" @input="setLines(field.key, $event)" /></label></div>
-              <template v-if="detail.family.skillType === 'IMAGE_PROMPT'">
-                <h4>IMAGE_PROMPT 专用结构</h4>
-                <label v-for="field in imageFields" :key="field.key">{{ field.label }}<textarea v-model="content[field.key]" rows="2" :disabled="versionDetail.status !== 'DRAFT'" /></label>
-              </template>
+              <details><summary>高级编辑结构</summary>
+                <label>用途 <textarea v-model="content.purpose" rows="3" :disabled="versionDetail.status !== 'DRAFT'" /></label>
+                <div v-for="field in commonFields" :key="field.key"><label>{{ field.label }}（每行一条）<textarea :value="(content[field.key] || []).join('\n')" rows="3" :disabled="versionDetail.status !== 'DRAFT'" @input="setLines(field.key, $event)" /></label></div>
+                <template v-if="detail.family.skillType === 'IMAGE_PROMPT'">
+                  <h4>IMAGE_PROMPT 专用结构</h4>
+                  <label v-for="field in imageFields" :key="field.key">{{ field.label }}<textarea v-model="content[field.key]" rows="2" :disabled="versionDetail.status !== 'DRAFT'" /></label>
+                </template>
+              </details>
               <h4>Loader 实际提供的 Runtime Instruction</h4>
               <pre class="preview">{{ runtimePreview || '点击“预览 Runtime Skill”查看' }}</pre>
             </template>
+            </details>
           </template>
         </template>
         <p v-else>选择一个 Skill，或新建 Draft V1。</p>
@@ -107,6 +120,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import axios from "@/utils/axios";
+import SkillBuilderPanel from "@/components/SkillBuilderPanel.vue";
+import { cloneSkillContent } from "@/utils/skillContent";
 
 type Family = { skillId: string; displayName: string; skillType: string; description: string; tags: string[]; updatedAt: number; versions: { version: string; status: string; sourceType: string }[] };
 const skillTypes = ["CONCEPT_CREATIVE", "SCRIPT", "DIRECTOR", "STORYBOARD", "IMAGE_PROMPT", "VIDEO_PROMPT", "CONTINUITY", "EDIT_PACING", "AUDIO_MUSIC", "SUPERVISOR", "QC", "DISTRIBUTION"];
@@ -114,13 +129,15 @@ const commonFields = [{ key: "inputs", label: "输入" }, { key: "rules", label:
 const imageFields = [{ key: "subject", label: "主体" }, { key: "composition", label: "构图" }, { key: "cameraLens", label: "镜头 / 焦段" }, { key: "lighting", label: "光线" }, { key: "color", label: "色彩" }, { key: "material", label: "材质" }, { key: "spatialRelationship", label: "空间关系" }, { key: "style", label: "风格" }, { key: "detailDensity", label: "细节密度" }, { key: "background", label: "背景" }, { key: "motion", label: "动态" }, { key: "negativeConstraints", label: "负面约束" }];
 const families = ref<Family[]>([]), detail = ref<any>(null), versionDetail = ref<any>(null), bindings = ref<any[]>([]), scopeBindings = ref<any[]>([]);
 const selectedSkillId = ref(""), selectedVersion = ref(""), runtimePreview = ref(""), content = ref<any>({});
-const mode = ref<"view" | "new" | "copy" | "derived" | "reverse" | "bindings">("view");
+const mode = ref<"view" | "quick" | "new" | "copy" | "derived" | "reverse" | "bindings">("view");
 const busy = ref(false), error = ref(""), notice = ref(""), reverseMessage = ref("");
 const familyForm = reactive({ skillId: "", displayName: "", skillType: "IMAGE_PROMPT", description: "" }), familyTags = ref("");
 const source = reactive({ projectId: 0, scriptId: 0, sourceType: "STORYBOARD_PROMPT", sourceId: 0 });
 const binding = reactive({ scopeType: "PROJECT", projectId: 0, scriptId: 0, storyboardId: 0, stageKey: "image-prompt", overrideOnly: false, overrideText: "" });
 const scopeKey = computed(() => binding.scopeType === "PROJECT" ? `project:${binding.projectId}` : binding.scopeType === "STAGE" ? `project:${binding.projectId}:script:${binding.scriptId}:stage:${binding.stageKey}` : `project:${binding.projectId}:script:${binding.scriptId}:storyboard:${binding.storyboardId}`);
 const validScope = computed(() => binding.projectId > 0 && (binding.scopeType === "PROJECT" || (binding.scriptId > 0 && (binding.scopeType === "STAGE" ? !!binding.stageKey : binding.storyboardId > 0))));
+const pendingDraft = computed(() => detail.value?.versions.find((row: any) => row.status === "DRAFT") ?? null);
+const hasDraft = computed(() => Boolean(pendingDraft.value));
 const api = async (path: string, body: any = {}) => (await axios.post(`/skills/${path}`, body)).data;
 const time = (value: number) => value ? new Date(Number(value)).toLocaleString() : "—";
 function showError(value: any) { error.value = value?.response?.data?.message || value?.message || "Skill 操作失败"; }
@@ -131,7 +148,7 @@ async function selectFamily(family: Family) {
 }
 async function openVersion() {
   versionDetail.value = detail.value?.versions.find((row: any) => row.version === selectedVersion.value) ?? null;
-  content.value = versionDetail.value ? structuredClone(versionDetail.value.content) : {};
+  content.value = versionDetail.value ? cloneSkillContent(versionDetail.value.content) : {};
   runtimePreview.value = "";
 }
 function beginNew(next: "new" | "copy" | "derived") {
@@ -146,16 +163,26 @@ async function createFromForm() {
     let result: any;
     if (mode.value === "copy") result = await api("builder/copy", { sourceSkillId: selectedSkillId.value, sourceVersion: selectedVersion.value, family: familyValue() });
     else if (mode.value === "derived") result = await api("builder/project-derived", { family: familyValue(), ...source });
-    else { const family = await api("family/create", familyValue()); const version = await api("version/create", { skillId: family.skillId }); result = { family, version }; }
+    else { const templates = await api("templates"); result = await api("builder/quick-save", { family: familyValue(), candidateContent: templates[familyForm.skillType].content, sourceMetadata: { builder: "MANUAL_ADVANCED" } }); }
     await refresh(); await selectFamily(families.value.find(f => f.skillId === result.family.skillId)!);
     notice.value = `${result.version.version} Draft 已保存；请填写结构、预览并人工激活。`;
   } catch (e) { showError(e); } finally { busy.value = false; }
 }
 function setLines(field: string, event: Event) { content.value[field] = (event.target as HTMLTextAreaElement).value.split("\n").map(v => v.trim()).filter(Boolean); }
-async function saveDraft() { busy.value = true; error.value = ""; try { versionDetail.value = await api("version/edit", { skillId: selectedSkillId.value, version: selectedVersion.value, content: content.value }); await refresh(); notice.value = "Draft 已保存"; } catch (e) { showError(e); } finally { busy.value = false; } }
+async function saveDraft() { busy.value = true; error.value = ""; try { versionDetail.value = await api("version/edit", { skillId: selectedSkillId.value, version: selectedVersion.value, content: cloneSkillContent(content.value) }); await refresh(); notice.value = "Draft 已保存"; } catch (e) { showError(e); } finally { busy.value = false; } }
 async function activate() { busy.value = true; error.value = ""; try { await saveDraft(); if (error.value) return; await api("version/activate", { skillId: selectedSkillId.value, version: selectedVersion.value }); await refresh(); detail.value = await api("get", { skillId: selectedSkillId.value }); await openVersion(); notice.value = `${selectedVersion.value} 已激活`; } catch (e) { showError(e); } finally { busy.value = false; } }
 async function deprecate() { if (!window.confirm("弃用后不能创建新绑定；历史精确绑定仍可继续使用。确认？")) return; try { await api("version/deprecate", { skillId: selectedSkillId.value, version: selectedVersion.value }); await refresh(); detail.value = await api("get", { skillId: selectedSkillId.value }); await openVersion(); } catch (e) { showError(e); } }
 async function createNextVersion() { try { const value = await api("version/create", { skillId: selectedSkillId.value, sourceVersion: selectedVersion.value }); await refresh(); detail.value = await api("get", { skillId: selectedSkillId.value }); selectedVersion.value = value.version; mode.value = "view"; await openVersion(); notice.value = `${value.version} Draft 已创建，旧绑定保持原版本。`; } catch (e) { showError(e); } }
+async function continueDraft() { if (!pendingDraft.value) return; selectedVersion.value = pendingDraft.value.version; mode.value = "view"; await openVersion(); }
+async function onBuilderSaved(value: any) {
+  await refresh();
+  const skillId = value.family?.skillId || value.skillId || selectedSkillId.value;
+  const family = families.value.find(item => item.skillId === skillId);
+  if (family) await selectFamily(family);
+  if (value.version?.version) { selectedVersion.value = value.version.version; await openVersion(); }
+  else if (value.version && typeof value.version === "string") { selectedVersion.value = value.version; await openVersion(); }
+  notice.value = "候选已按你的确认保存为 Draft；激活仍需你决定。";
+}
 async function previewRuntime() { try { runtimePreview.value = (await api("version/preview", { skillId: selectedSkillId.value, version: selectedVersion.value })).runtimeInstruction; } catch (e) { showError(e); } }
 async function openBindings() { mode.value = "bindings"; try { bindings.value = await api("binding/list", { skillId: selectedSkillId.value }); } catch (e) { showError(e); } }
 async function loadScopeBindings() { if (!validScope.value) return; try { scopeBindings.value = await api("binding/list", { scopeType: binding.scopeType, scopeKey: scopeKey.value }); } catch (e) { showError(e); } }

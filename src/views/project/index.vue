@@ -36,6 +36,7 @@
             <span>{{ dayjs(project?.createTime).format("YYYY-MM-DD HH:mm:ss") }}</span>
           </div>
           <div class="actionBtns f ac">
+            <t-button v-if="project.projectType === 'general_video' && project.type === 'advertisement'" size="small" variant="text" @click.stop="skillProjectId = Number(project.id)">使用 Skill</t-button>
             <div class="editBtn" @click.stop="openEdit(project)">
               <i-edit :size="18" />
             </div>
@@ -48,10 +49,12 @@
     </div>
   </div>
   <projectDialog v-model="dialogShow" :projectData="editProjectData" @add="addProjectFn" @edit="editProjectFn" />
+  <ProjectSkillPicker v-if="skillProjectId" :project-id="skillProjectId" @close="skillProjectId = null" />
 </template>
 
 <script setup lang="ts">
 import projectDialog from "./components/projectDialog.vue";
+import ProjectSkillPicker from "@/components/ProjectSkillPicker.vue";
 import dayjs from "dayjs";
 import axios from "@/utils/axios";
 import { currentAdvertisementUnit, selectAdvertisementUnit, advertisementLocation } from "@/utils/advertisementUnit";
@@ -62,6 +65,7 @@ const { clearProjectCache } = imageListCacheStore();
 const { allProject, project } = storeToRefs(projectStore());
 
 const dialogShow = ref(false);
+const skillProjectId = ref<number | null>(null);
 const editProjectData = ref<{
   id: string;
   name: string;

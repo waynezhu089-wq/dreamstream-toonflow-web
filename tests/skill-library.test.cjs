@@ -7,7 +7,16 @@ const settle=async()=>{for(let i=0;i<12;i++){await new Promise(resolve=>setTimeo
 function component(relative,post){
  const file=path.join(root,relative),source=fs.readFileSync(file,'utf8');
  const code=ts.transpileModule(compileScript(parse(source,{filename:file}).descriptor,{id:'skill-ui',inlineTemplate:true}).content,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
- const m={exports:{}};new Function('require','module','exports',code)(id=>id==='@/utils/axios'?{post}:require(id),m,m.exports);return m.exports.default;
+ const localRequire=id=>{
+  if(id==='@/utils/axios')return{post};
+  if(id==='@/components/SkillBuilderPanel.vue')return component('components/SkillBuilderPanel.vue',post);
+  if(id==='@/utils/skillContent'){
+   const source=fs.readFileSync(path.join(root,'utils/skillContent.ts'),'utf8');const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
+   const module={exports:{}};new Function('require','module','exports',js)(require,module,module.exports);return module.exports;
+  }
+  return require(id);
+ };
+ const m={exports:{}};new Function('require','module','exports',code)(localRequire,m,m.exports);return m.exports.default;
 }
 function mount(t,Component,props={},listeners={}){
  const el=document.createElement('div');document.body.append(el);
@@ -24,8 +33,8 @@ test('Skill Library creates Manual Draft, saves structured IMAGE_PROMPT fields, 
  const families=[],calls=[],bindingRows=[],blank={purpose:'',inputs:[],rules:[],outputRequirements:[],prohibitions:[],applicableScenes:[],tags:[],subject:'',composition:'',cameraLens:'',lighting:'',color:'',material:'',spatialRelationship:'',style:'',detailDensity:'',background:'',motion:'',negativeConstraints:''};
  const post=async(url,body)=>{calls.push({url,body:JSON.parse(JSON.stringify(body))});let data;
   if(url.endsWith('/list'))data=families;
-  else if(url.endsWith('/family/create')){data={...body,updatedAt:Date.now(),versions:[]};families.push(data);}
-  else if(url.endsWith('/version/create')){data={skillId:body.skillId,version:'v1',status:'DRAFT',sourceType:'MANUAL',templateId:'image-prompt.v1',content:structuredClone(blank)};families[0].versions.unshift(data);}
+  else if(url.endsWith('/templates'))data={IMAGE_PROMPT:{templateId:'image-prompt.v1',content:structuredClone(blank)}};
+  else if(url.endsWith('/builder/quick-save')){const version={skillId:body.family.skillId,version:'v1',status:'DRAFT',sourceType:'MANUAL',templateId:'image-prompt.v1',content:structuredClone(body.candidateContent)};const family={...body.family,updatedAt:Date.now(),versions:[version]};families.push(family);data={family,version};}
   else if(url.endsWith('/get'))data={family:families[0],versions:families[0].versions};
   else if(url.endsWith('/version/edit')){families[0].versions[0].content=JSON.parse(JSON.stringify(body.content));data=families[0].versions[0];}
   else if(url.endsWith('/version/activate')){families[0].versions[0].status='ACTIVE';data=families[0].versions[0];}
@@ -36,6 +45,8 @@ test('Skill Library creates Manual Draft, saves structured IMAGE_PROMPT fields, 
   else if(url.endsWith('/builder/reverse-compatibility'))data={available:false,message:'当前没有可执行的 Reverse Prompt Capability'};
   else throw Error(url);return{data};};
  const f=mount(t,component('components/SkillLibrary.vue',post));await settle();f.button('新建 Skill').click();await settle();
+ assert.match(f.el.textContent,/告诉 Dream Stream，你希望这个 Skill 怎样工作/);
+ f.button('手动创建').click();await settle();
  f.input(f.el.querySelector('input[placeholder="image-prompt.tech-product-cinematic"]'),'image-prompt.tech-product-cinematic');
  f.input(f.el.querySelector('input[placeholder="科技产品电影感图片 Prompt"]'),'科技产品电影感图片 Prompt');
  f.button('保存 Draft V1').click();await settle();
@@ -79,4 +90,70 @@ test('Advertisement storyboard explains V1, uses override-only Shot binding, pre
  f.button('应用到 Storyboard').click();await settle();assert.equal(applied.length,1);assert.equal(applied[0].promptSkillVersion,'v1');
  f.button('人工升级项目绑定到 v2').click();await settle();assert.equal(projectVersion,'v2');
  assert.equal(calls.some(call=>call.url.endsWith('/binding/save')&&call.body.scopeType==='PROJECT'&&call.body.skillVersion==='v2'),true);
+});
+
+test('UX1 Quick Builder is default, previews cards without writes, saves atomically, refines same Draft and creates V2 only after selected field diff',async t=>{
+ const families=[],calls=[],blank={purpose:'Reusable visual method',inputs:[],rules:['Preserve real UI'],outputRequirements:['One full prompt'],prohibitions:['Never redraw UI'],applicableScenes:[],tags:[],subject:'Product',composition:'Medium shot',cameraLens:'50mm',lighting:'Soft side light',color:'Cool',material:'Realistic',spatialRelationship:'Layered',style:'Cinematic',detailDensity:'Moderate',background:'Clean',motion:'',negativeConstraints:'No fake text'};
+ const post=async(url,body)=>{calls.push({url,body:JSON.parse(JSON.stringify(body))});let data;
+  if(url.endsWith('/list'))data=families;
+  else if(url.endsWith('/builder/quick-preview'))data={skillId:'image-prompt.tech-product',suggestedSlug:'tech-product',displayName:'Tech Product',description:'Reusable',tags:['product'],candidateContent:structuredClone(blank),modelReference:'universalAi'};
+  else if(url.endsWith('/builder/quick-save')){const version={skillId:body.family.skillId,version:'v1',status:'DRAFT',sourceType:'MANUAL',templateId:'image-prompt.v1',content:structuredClone(body.candidateContent)};const family={...body.family,versions:[version],updatedAt:Date.now()};families.push(family);data={family,version};}
+  else if(url.endsWith('/get'))data={family:families[0],versions:families[0].versions};
+  else if(url.endsWith('/builder/draft-preview'))data={candidateContent:{...blank,lighting:'Natural daylight'},changes:[{field:'lighting',changeType:'MODIFIED',before:'Soft side light',after:'Natural daylight',accepted:false}],modelReference:'universalAi'};
+  else if(url.endsWith('/version/edit')){families[0].versions.find(v=>v.version===body.version).content=structuredClone(body.content);data=families[0].versions.find(v=>v.version===body.version);}
+  else if(url.endsWith('/version/activate')){families[0].versions.find(v=>v.version===body.version).status='ACTIVE';data=families[0].versions[0];}
+  else if(url.endsWith('/builder/improve-preview'))data={candidateContent:{...blank,lighting:'Bright outdoor light'},changes:[{field:'lighting',changeType:'MODIFIED',before:'Natural daylight',after:'Bright outdoor light',accepted:false}],modelReference:'universalAi'};
+  else if(url.endsWith('/version/create')){const version={skillId:body.skillId,version:'v2',status:'DRAFT',sourceType:'MANUAL',templateId:'image-prompt.v1',content:structuredClone(body.content)};families[0].versions.unshift(version);data=version;}
+  else throw Error(url);return{data};};
+ const f=mount(t,component('components/SkillLibrary.vue',post));await settle();f.button('新建 Skill').click();await settle();
+ assert.match(f.el.textContent,/告诉 Dream Stream，你希望这个 Skill 怎样工作/);
+ assert.equal(f.el.querySelector('input[placeholder="image-prompt.tech-product-cinematic"]'),null);
+ assert.equal([...f.el.querySelectorAll('details')].find(node=>node.textContent.includes('高级编辑结构')),undefined);
+ const natural=f.el.querySelector('.skill-builder textarea');f.input(natural,'Cinematic product, real UI remains untouched');f.button('AI 生成 Skill Draft').click();await settle();
+ assert.equal(families.length,0);assert.equal(calls.some(x=>x.url.endsWith('/family/create')||x.url.endsWith('/version/create')),false);
+ assert.match(f.el.textContent,/Skill Candidate/);assert.match(f.el.textContent,/image-prompt.tech-product/);
+ assert.equal([...f.el.querySelectorAll('details')].find(node=>node.textContent.includes('高级编辑结构')).open,false);
+ f.button('保存 Draft V1').click();await settle();assert.equal(families.length,1);assert.equal(families[0].versions.length,1);
+ assert.equal(calls.filter(x=>x.url.endsWith('/builder/quick-save')).length,1);
+ f.button('刷新').click();await settle();f.el.querySelector('.family').click();await settle();assert.equal(f.el.querySelector('[role=alert]'),null);
+ f.input(f.el.querySelector('.skill-builder textarea'),'Use natural light');f.button('AI 帮我完善当前 Draft').click();await settle();
+ assert.equal(families[0].versions.length,1);f.button('应用到当前 Draft').click();await settle();assert.equal(families[0].versions[0].content.lighting,'Natural daylight');
+ f.button('人工激活').click();await settle();assert.equal(families[0].versions[0].status,'ACTIVE',JSON.stringify(calls.map(x=>x.url))+f.el.textContent);
+ f.input(f.el.querySelector('.skill-builder textarea'),'Make the lighting brighter');f.button('AI 预览改进').click();await settle();
+ assert.equal(f.button('创建 Draft V2').disabled,true);const box=f.el.querySelector('.change-card input[type=checkbox]');box.checked=true;box.dispatchEvent(new Event('change',{bubbles:true}));await settle();
+ f.button('创建 Draft V2').click();await settle();assert.equal(families[0].versions.length,2);assert.equal(families[0].versions[0].content.lighting,'Bright outdoor light');
+ const select=f.el.querySelector('select');select.value='v1';select.dispatchEvent(new Event('change',{bubbles:true}));await settle();
+ assert.match(f.el.textContent,/已有 v2 正在编辑/);assert.equal(f.button('AI 预览改进').disabled,true);
+});
+
+test('UX1 Storyboard Project Derived uses current unit and source hash without asking for internal IDs',async t=>{
+ const calls=[],saved=[];const content={purpose:'Reusable',inputs:[],rules:['Keep real UI'],outputRequirements:[],prohibitions:[],applicableScenes:[],tags:[],subject:'',composition:'',cameraLens:'',lighting:'Blue',color:'',material:'',spatialRelationship:'',style:'',detailDensity:'',background:'',motion:'',negativeConstraints:''};
+ const post=async(url,body)=>{calls.push({url,body:JSON.parse(JSON.stringify(body))});let data;
+  if(url.endsWith('/list'))data=[];
+  else if(url.endsWith('/recommend'))data={recommended:null,otherCompatibleSkills:[]};
+  else if(url.endsWith('/resolve'))throw{response:{data:{data:{reason:'SKILL_RESOLUTION_FAILED'}}}};
+  else if(url.endsWith('/binding/list'))data=[];
+  else if(url.endsWith('/builder/project-derived-preview'))data={skillId:'image-prompt.derived',displayName:'Derived Method',description:'Reusable',tags:[],candidateContent:content,sourceHash:'a'.repeat(64),modelReference:'productionAgent:storyboardGenAgent'};
+  else if(url.endsWith('/builder/project-derived-save')){data={family:{skillId:body.family.skillId,displayName:body.family.displayName},version:{version:'v1',status:'DRAFT'}};saved.push(data);}
+  else throw Error(url);return{data};};
+ const f=mount(t,component('views/production/components/ImagePromptSkill.vue',post),{projectId:9,scriptId:11,storyboardId:13,currentPrompt:'Current real prompt'});await settle();
+ f.button('沉淀当前 Prompt 为 Skill').click();await settle();assert.equal(f.el.querySelector('.skill-builder input[type=number]'),null);
+ f.button('AI 提炼当前 Prompt').click();await settle();const preview=calls.find(x=>x.url.endsWith('/builder/project-derived-preview'));
+ assert.deepEqual([preview.body.projectId,preview.body.scriptId,preview.body.storyboardId],[9,11,13]);
+ f.button('保存 Draft V1').click();await settle();const save=calls.find(x=>x.url.endsWith('/builder/project-derived-save'));
+ assert.equal(save.body.expectedSourceHash,'a'.repeat(64));assert.equal(saved.length,1);
+});
+
+test('UX1 project Skill selection binds the known project without manual ID fields',async t=>{
+ const calls=[];let current=null;
+ const post=async(url,body)=>{calls.push({url,body});let data;
+  if(url.endsWith('/list'))data=[{skillId:'image-prompt.tech',displayName:'Tech Method',skillType:'IMAGE_PROMPT',versions:[{version:'v1',status:'ACTIVE'}]}];
+  else if(url.endsWith('/binding/list'))data=current?[current]:[];
+  else if(url.endsWith('/binding/save')){current=body;data=body;}
+  else throw Error(url);return{data};};
+ const f=mount(t,component('components/ProjectSkillPicker.vue',post),{projectId:29});await settle();
+ assert.equal(f.el.querySelector('input[type=number]'),null);assert.match(f.el.textContent,/Tech Method/);
+ const select=f.el.querySelector('select');select.value='image-prompt.tech@v1';select.dispatchEvent(new Event('change',{bubbles:true}));await settle();
+ f.button('使用这个 Skill').click();await settle();
+ const saved=calls.find(item=>item.url.endsWith('/binding/save'));assert.equal(saved.body.scopeKey,'project:29');assert.equal(saved.body.skillVersion,'v1');
 });
