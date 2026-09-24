@@ -1,6 +1,14 @@
 <template>
-  <t-dialog :visible="true" header="背景 + 真实素材合成" width="820px" :footer="false" @close="$emit('close')">
-    <div class="composite-panel">
+  <t-dialog
+    :visible="true"
+    header="背景 + 真实素材合成"
+    width="820px"
+    :footer="false"
+    attach="body"
+    placement="center"
+    dialog-class-name="composite-dialog"
+    @close="$emit('close')">
+    <div class="composite-panel" @wheel.stop @pointerdown.stop @mousedown.stop>
       <p>先生成不含真实界面的背景，再人工确认屏幕四角，将已绑定的真实素材透视合成。只有最终合成图才算镜头完成。</p>
       <label>背景描述（不要描述或要求生成真实 UI）<textarea v-model="prompt" rows="4" :disabled="busy" /></label>
       <div class="parameters">
@@ -95,10 +103,16 @@ watch(() => [props.projectId, props.scriptId, props.storyboardId], () => {
 }, { immediate: true });
 onUnmounted(() => { generation++; clearTimeout(timer); });
 </script>
+<style>
+.composite-dialog { max-width: calc(100vw - 32px); max-height: calc(100vh - 96px); max-height: calc(100dvh - 96px); display: flex; flex-direction: column; }
+.composite-dialog .t-dialog__header { flex: none; }
+.composite-dialog .t-dialog__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+</style>
 <style scoped>
-.composite-panel { max-height: 75vh; overflow: auto; padding: 8px; }
-label { display: block; margin: 8px 0; } textarea { display: block; width: 100%; }
-.parameters { display: flex; gap: 16px; align-items: center; } input[type="number"] { width: 110px; margin-left: 8px; }
+.composite-panel { padding: 8px; }
+label { display: block; margin: 8px 0; } textarea { display: block; width: 100%; box-sizing: border-box; }
+.parameters { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; } input[type="number"] { width: 110px; margin-left: 8px; }
 .preview { display: block; max-height: 460px; max-width: 100%; margin: 12px auto; }
 svg.preview { width: 100%; height: 460px; } .error { color: #c22; }
 </style>
+

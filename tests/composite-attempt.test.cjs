@@ -38,3 +38,23 @@ test('entry is restricted to advertisement composite shots; no new automatic bat
  assert.match(source,/:script-id="Number\(episodesId\)"/);
 });
 
+test('composite dialog stays in the viewport and wheel events scroll inside instead of reaching VueFlow',async t=>{
+ const source=fs.readFileSync(file,'utf8');
+ assert.match(source,/attach="body"/);
+ assert.match(source,/placement="center"/);
+ assert.match(source,/\.composite-dialog \{[^}]*max-height: calc\(100dvh - 96px\)/);
+ assert.match(source,/\.composite-dialog \.t-dialog__body \{[^}]*overflow-y: auto/);
+ const f=fixture(t);await settle();
+ let canvasWheels=0,canvasPointerDowns=0;
+ f.el.addEventListener('wheel',()=>canvasWheels++);
+ f.el.addEventListener('pointerdown',()=>canvasPointerDowns++);
+ const panel=f.el.querySelector('.composite-panel');
+ const wheel=new dom.window.WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:120});
+ panel.dispatchEvent(wheel);
+ panel.dispatchEvent(new Event('pointerdown',{bubbles:true}));
+ assert.equal(canvasWheels,0);
+ assert.equal(canvasPointerDowns,0);
+ assert.equal(wheel.defaultPrevented,false);
+});
+
+
