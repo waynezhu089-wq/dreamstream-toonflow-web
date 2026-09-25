@@ -20,12 +20,14 @@ function component(post) {
 }
 async function settle() { for (let i = 0; i < 12; i++) { await new Promise(resolve => setTimeout(resolve, 0)); await vue.nextTick(); } }
 const target = scriptId => ({ review: { displayName: 'Storyboard Semantic Approval' }, target: { targetHash: String(scriptId).padStart(64, '0'), targetAdapterKey: 'storyboard.semantic.v1', targetType: 'STORYBOARD_SEMANTIC', summary: '1 个分镜' }, profile: { profileKey: 'mv', profileVersion: 'v1' }, recipe: null, controlContextHash: 'a'.repeat(64) });
-function setup(t) {
+function setup(t, options = {}) {
   const calls = [];
   const post = async (url, body) => { calls.push({ url, body });
     if (url.endsWith('/target/read')) return { data: target(body.scriptId) };
     if (url.endsWith('/review/history')) return { data: { history: [{ reviewId: 'old', decision: 'PASS', status: 'STALE', source: 'HUMAN', actorDisplayName: 'Reviewer', createdAt: Date.now(), summary: 'Old', targetHash: 'b'.repeat(64), profileKey: 'mv', profileVersion: 'v1', recipeKey: null, issues: [] }] } };
     if (url.endsWith('/gate/check')) return { data: { pass: false, code: 'SUPERVISOR_REVIEW_REQUIRED', reason: 'Review needed', effectiveDecision: null, staleCount: 1 } };
+    if (url.endsWith('/ai/context')) { if (options.aiContextError) throw Error('AI policy unavailable'); return { data: { skillId: 'supervisor.test', skillVersion: 'v1', skillStatus: 'ACTIVE', resolvedFrom: { scopeType: 'STAGE', scopeKey: 'project:7:script:42:stage:supervisor-review' }, supervisorResolutionHash: 'c'.repeat(64), overrideChain: [], targetHash: target(body.scriptId).target.targetHash, controlContextHash: 'a'.repeat(64) } }; }
+    if (url.endsWith('/review/ai')) return options.aiResponse ? options.aiResponse() : { data: { decision: 'PASS' } };
     if (url.endsWith('/review/decide')) return { data: { reviewId: 'new' } };
     throw Error(url);
   };
@@ -43,7 +45,7 @@ test('Production Inspector reads exact current unit, displays stale history and 
   assert.match(f.el.textContent, /Storyboard Semantic Approval/);
   assert.match(f.el.textContent, /SUPERVISOR_REVIEW_REQUIRED/);
   assert.match(f.el.textContent, /过期审核记录/);
-  assert.deepEqual(f.calls.filter(x => !x.url.endsWith('/review/decide')).map(x => x.body), Array(3).fill({ projectId: 7, scriptId: 42, reviewKey: 'storyboard.semantic-approval' }));
+  assert.deepEqual(f.calls.filter(x => !x.url.endsWith('/review/decide')).map(x => x.body), Array(4).fill({ projectId: 7, scriptId: 42, reviewKey: 'storyboard.semantic-approval' }));
   window.confirm = () => true;
   f.button('人工确认 PASS').click(); await settle();
   const decision = f.calls.find(x => x.url.endsWith('/review/decide')).body;
@@ -62,5 +64,30 @@ test('REVISE requires a blocker in UI and Production owns the Inspector mount', 
   assert.equal(f.button('提交 REVISE').disabled, true); // summary and issue message remain required by server
   const production = fs.readFileSync(path.join(root, 'views/production/index.vue'), 'utf8');
   assert.match(production, /SupervisorReviewInspector.*project-id="Number\(project\.id\)".*script-id="Number\(episodesId\)"/);
-  assert.doesNotMatch(source, /advertisement\.asset-ready|actOnStage|modelReference|AI\.generate/);
+  assert.doesNotMatch(source, /advertisement\.asset-ready|actOnStage|AI\.generate/);
+});
+
+test('AI section shows exact Skill and sends only current scope and freshness hashes', async t => {
+  const f = setup(t); await settle();
+  assert.match(f.el.textContent, /supervisor\.test @ v1/);
+  assert.match(f.el.textContent, /策略版本/);
+  f.button('AI 审查当前版本').click(); await settle();
+  const request = f.calls.find(x => x.url.endsWith('/review/ai')).body;
+  assert.deepEqual(request, { projectId: 7, scriptId: 42, reviewKey: 'storyboard.semantic-approval', expectedTargetHash: target(42).target.targetHash, expectedControlContextHash: 'a'.repeat(64) });
+  assert.equal(request.skillId, undefined); assert.equal(request.modelReference, undefined);
+  assert.ok(f.calls.filter(x => x.url.endsWith('/target/read')).length >= 2);
+});
+
+test('AI failure remains in its section and duplicate triggers are disabled while busy', async t => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const f = setup(t, { aiResponse: () => pending }); await settle();
+  const button = f.button('AI 审查当前版本'); button.click(); await vue.nextTick();
+  assert.equal(button.disabled, true);
+  button.click(); await vue.nextTick();
+  assert.equal(f.calls.filter(x => x.url.endsWith('/review/ai')).length, 1);
+  release({ data: { decision: 'PASS' } }); await settle();
+  const noPolicy = setup(t, { aiContextError: true }); await settle();
+  assert.match(noPolicy.el.textContent, /AI policy unavailable/);
+  assert.equal(noPolicy.button('人工确认 PASS').disabled, false);
 });
