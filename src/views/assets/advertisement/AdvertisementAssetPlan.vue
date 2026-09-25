@@ -10,6 +10,7 @@
         </select>
       </label>
     </header>
+    <details v-if="context" class="orchestrator-advanced"><summary>Advanced · Stage Orchestrator Inspector</summary><StageOrchestratorInspector :project-id="context.projectId" :script-id="context.scriptId" /></details>
     <p v-if="unitError" class="error" role="alert">{{ unitError }} <button @click="loadUnits">重新加载</button></p>
     <p v-if="!context">请选择这条广告的制作单元，再查看它自己的素材清单。</p>
     <template v-else>
@@ -69,6 +70,7 @@
 </template>
 <script setup lang="ts">
 import ModelPresets from "@/components/ModelPresets.vue";
+import StageOrchestratorInspector from "@/components/StageOrchestratorInspector.vue";
 import { computed, ref, watch, nextTick, onScopeDispose } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import axios from "@/utils/axios";
