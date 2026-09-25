@@ -80,6 +80,7 @@
             </template>
           </t-button>
         </t-tooltip>
+        <t-button v-if="project?.id && episodesId" variant="outline" style="margin-left:8px" @click.stop="supervisorVisible = true">Advanced · Supervisor Review</t-button>
         <i-loading-four class="spin" size="16" style="margin-left: 0.5rem" v-show="loading"></i-loading-four>
         <!-- <t-tooltip theme="primary" content="$t('workbench.production.autoLayoutTB')">
           <div class="item c" @click="layoutGraph('TB')">
@@ -97,6 +98,7 @@
     <t-guide v-model="current" :steps="steps" @finish="() => (current = -1)" />
     <t-tag variant="outline" class="fps" v-if="!openShowVisible">{{ fps }}</t-tag>
   </VueFlow>
+  <SupervisorReviewInspector v-if="project?.id && episodesId" :visible="supervisorVisible" :project-id="Number(project.id)" :script-id="Number(episodesId)" @close="supervisorVisible = false" />
 </template>
 
 <script setup lang="ts">
@@ -116,6 +118,7 @@ import storyboard from "./node/storyboard.vue";
 import workbench from "./node/workbench.vue";
 import poster from "./node/poster.vue";
 import rightChatBox from "./components/rightChatBox/index.vue";
+import SupervisorReviewInspector from "./components/SupervisorReviewInspector.vue";
 import { useLayout } from "./utils/dagre";
 import { useFlowBuilder } from "./utils/flowBuilder";
 import axios from "@/utils/axios";
@@ -128,6 +131,7 @@ const isAdvertisement = computed(() => project.value?.projectType === "general_v
 import settingStore from "@/stores/setting";
 const { canvasWheelEvent, otherSetting } = storeToRefs(settingStore());
 const openShowVisible = ref(true);
+const supervisorVisible = ref(false);
 const {
   toObject,
   fromObject,
