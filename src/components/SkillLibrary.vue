@@ -200,6 +200,6 @@ onMounted(refresh);
 .family { border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; display: grid; gap: 4px; }
 .family.selected { border-color: #0052d9; } .family small,.family span { color: #666; }
 .detail label { display: block; margin: 10px 0; } .detail input:not([type=checkbox]),.detail select,.detail textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; }
-.detail input[type=checkbox] { margin-right: 6px; }.preview { white-space: pre-wrap; max-height: 300px; overflow: auto; background: #f6f6f6; padding: 12px; }
+.detail input[type=checkbox] { margin-right: 6px; }.preview { white-space: pre-wrap; max-height: 300px; overflow: auto; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-primary); padding: 12px; }
 .binding-row { border-bottom: 1px solid #ddd; padding: 8px 0; display: flex; justify-content: space-between; gap: 8px; } .error { color: #c22; }
 </style>
