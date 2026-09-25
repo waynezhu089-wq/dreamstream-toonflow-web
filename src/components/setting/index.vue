@@ -33,6 +33,7 @@
           <ModelPresets v-if="activeMenu === 'modelPresets'" />
           <CapabilityLibrary v-if="activeMenu === 'capabilityLibrary'" />
           <ProductionProfileLibrary v-if="activeMenu === 'productionProfiles'" />
+          <RecipeLibrary v-if="activeMenu === 'recipeLibrary'" />
           <modelMap v-if="activeMenu === 'modelMap'" />
         </div>
       </div>
@@ -63,12 +64,14 @@ import ModelPresets from "@/components/ModelPresets.vue";
 import CapabilityLibrary from "@/components/CapabilityLibrary.vue";
 import SkillLibrary from "@/components/SkillLibrary.vue";
 import ProductionProfileLibrary from "@/components/ProductionProfileLibrary.vue";
+import RecipeLibrary from "@/components/RecipeLibrary.vue";
 import modelMap from "./components/modelMap.vue";
 
 const menuItems = [
   { key: "skillLibrary", label: "Skill Library", icon: "i-ring" },
   { key: "capabilityLibrary", label: "Capability Library", icon: "i-api" },
   { key: "productionProfiles", label: "Production Profiles", icon: "i-list" },
+  { key: "recipeLibrary", label: "Recipe Library", icon: "i-list" },
   { key: "modelPresets", label: "模型预设", icon: "i-computer" },
   { key: "ui", label: "settings.menu.ui", icon: "i-theme" },
   { key: "language", label: "settings.menu.language", icon: "i-translate" },
