@@ -193,13 +193,13 @@ onMounted(refresh);
 </script>
 
 <style scoped>
-.skill-library { min-width: 0; height: 100%; display: flex; flex-direction: column; gap: 12px; }
+.skill-library { min-width: 0; height: 100%; display: flex; flex-direction: column; gap: 12px; color: var(--td-text-color-primary); }
 .toolbar,.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .columns { display: grid; grid-template-columns: minmax(220px, 32%) minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
 .list,.detail { overflow-y: auto; min-height: 0; padding: 8px; }
-.family { border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; display: grid; gap: 4px; }
-.family.selected { border-color: #0052d9; } .family small,.family span { color: #666; }
-.detail label { display: block; margin: 10px 0; } .detail input:not([type=checkbox]),.detail select,.detail textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; }
+.family { border: 1px solid var(--td-component-border); border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; display: grid; gap: 4px; }
+.family.selected { border-color: var(--td-brand-color); } .family small,.family span { color: var(--td-text-color-secondary); }
+.detail label { display: block; margin: 10px 0; } .detail input:not([type=checkbox]),.detail select,.detail textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; color: var(--td-text-color-primary); background: var(--td-bg-color-container); border: 1px solid var(--td-component-border); }
 .detail input[type=checkbox] { margin-right: 6px; }.preview { white-space: pre-wrap; max-height: 300px; overflow: auto; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-primary); padding: 12px; }
-.binding-row { border-bottom: 1px solid #ddd; padding: 8px 0; display: flex; justify-content: space-between; gap: 8px; } .error { color: #c22; }
+.binding-row { border-bottom: 1px solid var(--td-component-border); padding: 8px 0; display: flex; justify-content: space-between; gap: 8px; } .error { color: var(--td-error-color); }
 </style>

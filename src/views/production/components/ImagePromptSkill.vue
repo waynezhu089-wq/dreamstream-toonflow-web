@@ -136,9 +136,9 @@ watch(() => [props.projectId, props.scriptId, props.storyboardId], () => { deriv
 .image-prompt-skill-dialog .t-dialog__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 </style>
 <style scoped>
-.skill-dialog-panel { padding: 8px; } section { border-bottom: 1px solid #ddd; padding: 8px 0 16px; }
-label { display: block; margin: 10px 0; } textarea,select { display: block; width: 100%; box-sizing: border-box; }
-.trace { padding: 6px; border-bottom: 1px solid #eee; } .upgrade { padding: 8px; background: #fffbe6; }
-.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.compare pre { white-space: pre-wrap; max-height: 280px; overflow: auto; background: #f6f6f6; padding: 8px; }
-.error { color: #c22; } @media (max-width: 650px) { .compare { grid-template-columns: 1fr; } }
+.skill-dialog-panel { padding: 8px; color: var(--td-text-color-primary); } section { border-bottom: 1px solid var(--td-component-border); padding: 8px 0 16px; }
+label { display: block; margin: 10px 0; } textarea,select { display: block; width: 100%; box-sizing: border-box; color: var(--td-text-color-primary); background: var(--td-bg-color-container); border: 1px solid var(--td-component-border); }
+.trace { padding: 6px; border-bottom: 1px solid var(--td-component-border); } .upgrade { padding: 8px; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-primary); border-left: 3px solid var(--td-warning-color); }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.compare pre { white-space: pre-wrap; max-height: 280px; overflow: auto; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-primary); padding: 8px; }
+.error { color: var(--td-error-color); } @media (max-width: 650px) { .compare { grid-template-columns: 1fr; } }
 </style>

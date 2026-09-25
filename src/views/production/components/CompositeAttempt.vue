@@ -109,10 +109,10 @@ onUnmounted(() => { generation++; clearTimeout(timer); });
 .composite-dialog .t-dialog__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 </style>
 <style scoped>
-.composite-panel { padding: 8px; }
+.composite-panel { padding: 8px; color: var(--td-text-color-primary); }
 label { display: block; margin: 8px 0; } textarea { display: block; width: 100%; box-sizing: border-box; }
+textarea,input[type="number"] { color: var(--td-text-color-primary); background: var(--td-bg-color-container); border: 1px solid var(--td-component-border); }
 .parameters { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; } input[type="number"] { width: 110px; margin-left: 8px; }
 .preview { display: block; max-height: 460px; max-width: 100%; margin: 12px auto; }
-svg.preview { width: 100%; height: 460px; } .error { color: #c22; }
+svg.preview { width: 100%; height: 460px; } .error { color: var(--td-error-color); }
 </style>
-

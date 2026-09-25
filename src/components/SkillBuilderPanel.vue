@@ -113,7 +113,7 @@ watch(selectedType, reset);
 </script>
 
 <style scoped>
-.skill-builder { display: grid; gap: 12px; padding: 8px; }.skill-builder label { display: block; }.skill-builder input:not([type=checkbox]),.skill-builder textarea,.skill-builder select { display: block; width: 100%; box-sizing: border-box; margin-top: 5px; }
-.candidate-card,.change-card { border: 1px solid #ddd; border-radius: 8px; padding: 10px; }.candidate-card p,.change-card p { white-space: pre-wrap; margin: 8px 0; }.preview-note { background: #eef7ff; padding: 8px; }.error { color: #c22; }
-details { border: 1px solid #ddd; padding: 8px; } details label { margin: 10px 0; }
+.skill-builder { display: grid; gap: 12px; padding: 8px; color: var(--td-text-color-primary); }.skill-builder label { display: block; }.skill-builder input:not([type=checkbox]),.skill-builder textarea,.skill-builder select { display: block; width: 100%; box-sizing: border-box; margin-top: 5px; color: var(--td-text-color-primary); background: var(--td-bg-color-container); border: 1px solid var(--td-component-border); }
+.candidate-card,.change-card { border: 1px solid var(--td-component-border); border-radius: 8px; padding: 10px; }.candidate-card p,.change-card p { white-space: pre-wrap; margin: 8px 0; }.preview-note { background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-primary); padding: 8px; }.error { color: var(--td-error-color); }
+details { border: 1px solid var(--td-component-border); padding: 8px; } details label { margin: 10px 0; }
 </style>
