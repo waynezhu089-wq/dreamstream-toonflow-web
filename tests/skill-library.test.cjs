@@ -77,17 +77,17 @@ test('Advertisement storyboard explains V1, uses override-only Shot binding, pre
   else if(url.endsWith('/resolve'))data={skillId:'image-prompt.tech',skillVersion:projectVersion,skillStatus:projectVersion==='v1'?'DEPRECATED':'ACTIVE',resolvedFrom:{scopeType:'PROJECT',scopeKey:'project:1'},overrideChain:[{scopeType:'SHOT',scopeKey:'project:1:script:10:storyboard:5',text:'Brighter'}],resolutionTrace:[{scopeType:'PROJECT',scopeKey:'project:1',skillId:'image-prompt.tech',skillVersion:projectVersion,kind:'EXACT_SKILL',selected:true,reason:'精确绑定'},{scopeType:'SHOT',scopeKey:'project:1:script:10:storyboard:5',skillId:null,skillVersion:null,kind:'OVERRIDE_ONLY',overrideText:'Brighter',selected:false,reason:'局部覆盖'}]};
   else if(url.endsWith('/binding/list'))data=[{scopeType:'SHOT',scopeKey:'project:1:script:10:storyboard:5',skillType:'IMAGE_PROMPT',skillId:null,skillVersion:null,overrideText:'Brighter'}];
   else if(url.endsWith('/binding/save')){if(body.scopeType==='PROJECT')projectVersion=body.skillVersion;data=body;}
-  else if(url.endsWith('/compile'))data={compileId:'11111111-1111-4111-8111-111111111111',currentPrompt:'Old prompt',compiledPrompt:'A complete new background prompt with real UI reserved for deterministic compositing.',resolvedSkill:{skillId:'image-prompt.tech',skillVersion:projectVersion,resolvedFrom:{scopeType:'PROJECT'},overrideChain:[{scopeType:'SHOT',text:'Brighter'}]}};
-  else if(url.endsWith('/compile/apply'))data={storyboard:{id:5,prompt:'A complete new background prompt with real UI reserved for deterministic compositing.',promptSkillId:'image-prompt.tech',promptSkillVersion:projectVersion,state:'未生成'}};
+  else if(url.endsWith('/compile'))data={compileId:'11111111-1111-4111-8111-111111111111',currentSemanticPrompt:'Old prompt',currentImagePrompt:null,compiledImagePrompt:'A complete new background prompt with real UI reserved for deterministic compositing.',resolvedSkill:{skillId:'image-prompt.tech',skillVersion:projectVersion,resolvedFrom:{scopeType:'PROJECT'},overrideChain:[{scopeType:'SHOT',text:'Brighter'}]}};
+  else if(url.endsWith('/compile/apply'))data={storyboard:{id:5,prompt:'Old prompt',imagePrompt:'A complete new background prompt with real UI reserved for deterministic compositing.',promptSkillId:'image-prompt.tech',promptSkillVersion:projectVersion,state:'未生成'}};
   else throw Error(url);return{data};};
- const f=mount(t,component('views/production/components/ImagePromptSkill.vue',post),{projectId:1,scriptId:10,storyboardId:5,currentPrompt:'Old prompt'},{onApplied:value=>applied.push(value)});await settle();
+ const f=mount(t,component('views/production/components/ImagePromptSkill.vue',post),{projectId:1,scriptId:10,storyboardId:5,semanticPrompt:'Old prompt',imagePrompt:null},{onApplied:value=>applied.push(value)});await settle();
  assert.match(f.el.textContent,/image-prompt.tech @ v1/);assert.match(f.el.textContent,/Why this Skill/);
  const override=f.el.querySelector('textarea');f.input(override,'More natural, preserve real UI');f.button('保存局部 Override').click();await settle();
  const saved=calls.find(call=>call.url.endsWith('/binding/save'));assert.equal(saved.body.scopeType,'SHOT');assert.equal(saved.body.skillId,null);assert.equal(saved.body.skillVersion,null);
- f.button('Compile Prompt').click();await settle();assert.match(f.el.textContent,/Current Prompt/);assert.match(f.el.textContent,/New Complete Prompt/);
+ f.button('Compile Prompt').click();await settle();assert.match(f.el.textContent,/Semantic Prompt/);assert.match(f.el.textContent,/Current Image Prompt/);assert.match(f.el.textContent,/New Complete Image Prompt/);
  assert.equal(f.button('应用到 Storyboard').disabled,true);assert.equal(calls.some(call=>call.url.endsWith('/compile/apply')),false);
  const checkbox=f.el.querySelector('input[type=checkbox]');checkbox.checked=true;checkbox.dispatchEvent(new Event('change',{bubbles:true}));await settle();
- f.button('应用到 Storyboard').click();await settle();assert.equal(applied.length,1);assert.equal(applied[0].promptSkillVersion,'v1');
+ f.button('应用到 Storyboard').click();await settle();assert.equal(applied.length,1);assert.equal(applied[0].prompt,'Old prompt');assert.match(applied[0].imagePrompt,/complete new background/);assert.equal(applied[0].promptSkillVersion,'v1');
  f.button('人工升级项目绑定到 v2').click();await settle();assert.equal(projectVersion,'v2');
  assert.equal(calls.some(call=>call.url.endsWith('/binding/save')&&call.body.scopeType==='PROJECT'&&call.body.skillVersion==='v2'),true);
 });
@@ -136,7 +136,7 @@ test('UX1 Storyboard Project Derived uses current unit and source hash without a
   else if(url.endsWith('/builder/project-derived-preview'))data={skillId:'image-prompt.derived',displayName:'Derived Method',description:'Reusable',tags:[],candidateContent:content,sourceHash:'a'.repeat(64),modelReference:'productionAgent:storyboardGenAgent'};
   else if(url.endsWith('/builder/project-derived-save')){data={family:{skillId:body.family.skillId,displayName:body.family.displayName},version:{version:'v1',status:'DRAFT'}};saved.push(data);}
   else throw Error(url);return{data};};
- const f=mount(t,component('views/production/components/ImagePromptSkill.vue',post),{projectId:9,scriptId:11,storyboardId:13,currentPrompt:'Current real prompt'});await settle();
+ const f=mount(t,component('views/production/components/ImagePromptSkill.vue',post),{projectId:9,scriptId:11,storyboardId:13,semanticPrompt:'Current real prompt',imagePrompt:null});await settle();
  f.button('沉淀当前 Prompt 为 Skill').click();await settle();assert.equal(f.el.querySelector('.skill-builder input[type=number]'),null);
  f.button('AI 提炼当前 Prompt').click();await settle();const preview=calls.find(x=>x.url.endsWith('/builder/project-derived-preview'));
  assert.deepEqual([preview.body.projectId,preview.body.scriptId,preview.body.storyboardId],[9,11,13]);

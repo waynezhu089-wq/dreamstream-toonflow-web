@@ -110,8 +110,8 @@
       </div>
     </div>
     <editImage v-model="visible" v-if="visible" :flowData="currentRow" type="storyboard" @save="save" />
-    <CompositeAttempt v-if="compositeShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="compositeShot.id!" :primary-asset-id="compositeShot.primaryAssetId!" :capability-id="compositeShot.capabilityId" @close="compositeShot = null" @completed="applyCompositeState" @pending="applyCompositeState" />
-    <ImagePromptSkill v-if="skillShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="skillShot.id!" :current-prompt="skillShot.prompt ?? ''" :prompt-skill-id="skillShot.promptSkillId" :prompt-skill-version="skillShot.promptSkillVersion" @close="skillShot = null" @applied="applySkillPrompt" />
+    <CompositeAttempt v-if="compositeShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="compositeShot.id!" :primary-asset-id="compositeShot.primaryAssetId!" :capability-id="compositeShot.capabilityId" :semantic-prompt="compositeShot.prompt" :image-prompt="compositeShot.imagePrompt" @close="compositeShot = null" @completed="applyCompositeState" @pending="applyCompositeState" />
+    <ImagePromptSkill v-if="skillShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="skillShot.id!" :semantic-prompt="skillShot.prompt ?? ''" :image-prompt="skillShot.imagePrompt" :prompt-skill-id="skillShot.promptSkillId" :prompt-skill-version="skillShot.promptSkillVersion" @close="skillShot = null" @applied="applySkillPrompt" />
     <t-image-viewer
       v-model:visible="previewVisible"
       v-if="previewVisible"
@@ -154,7 +154,7 @@ function applyCompositeState(result: { id: number; src: string | null; state: st
 }
 function applySkillPrompt(result: Storyboard) {
   const row = storyboard.value.find(s => s.id === result.id);
-  if (row) Object.assign(row, result);
+  if (row) Object.assign(row, { imagePrompt: result.imagePrompt, promptSkillId: result.promptSkillId, promptSkillVersion: result.promptSkillVersion });
 }
 watch(() => [project.value?.id, episodesId.value], () => { compositeShot.value = null; skillShot.value = null; });
 

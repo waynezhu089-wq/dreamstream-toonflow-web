@@ -27,3 +27,14 @@ test('actual batch response updates production metadata; legacy fields remain ab
  await fn([before]);assert.deepEqual(storyboardProductionFields(before),storyboardProductionFields(after));
  assert.deepEqual(storyboardProductionFields({shouldGenerateImage:1,associateAssetsIds:[6]}),{});
 });
+test('B1 local IMAGE_PROMPT Apply updates only execution fields and preserves semantic prompt',()=>{
+ const vue=require('vue/compiler-sfc');
+ const file=path.join(root,'src/views/production/node/storyboard.vue');
+ const script=vue.parse(fs.readFileSync(file,'utf8'),{filename:file}).descriptor.scriptSetup.content;
+ const syntax=ts.createSourceFile(file,script,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+ const fn=syntax.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='applySkillPrompt');assert.ok(fn);
+ const row={id:9,prompt:'Reviewed semantic intent',imagePrompt:null,filePath:'/previous.png',state:'已完成',promptSkillId:null};
+ const update=new Function('storyboard',compile(fn.getText(syntax))+';return applySkillPrompt;')({value:[row]});
+ update({id:9,prompt:'Must not replace semantics',imagePrompt:'Detailed execution prompt',promptSkillId:'image.method',promptSkillVersion:'v1',filePath:''});
+ assert.equal(row.prompt,'Reviewed semantic intent');assert.equal(row.imagePrompt,'Detailed execution prompt');assert.equal(row.filePath,'/previous.png');assert.equal(row.state,'已完成');assert.equal(row.promptSkillId,'image.method');
+});

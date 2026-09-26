@@ -4,8 +4,8 @@ for(const key of ['window','document','Element','HTMLElement','SVGElement','Node
 const vue=require('vue'),ts=require('typescript'),{parse,compileScript}=require('vue/compiler-sfc');
 const file=path.resolve(__dirname,'../src/views/production/components/CompositeAttempt.vue');
 const settle=async()=>{for(let i=0;i<8;i++){await new Promise(r=>setTimeout(r,0));await vue.nextTick();}};
-function fixture(t){
- const requests=[],events=[],props=vue.reactive({projectId:1,scriptId:10,storyboardId:5,primaryAssetId:6});
+function fixture(t, overrides={}){
+ const requests=[],events=[],props=vue.reactive({projectId:1,scriptId:10,storyboardId:5,primaryAssetId:6,...overrides});
  const state={id:1,status:'AWAITING_QUAD',backgroundUrl:'/background.png',width:576,height:1024,primaryAssetId:6};
  const code=ts.transpileModule(compileScript(parse(fs.readFileSync(file,'utf8'),{filename:file}).descriptor,{id:'composite',inlineTemplate:true}).content,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
  const m={exports:{}};
@@ -25,6 +25,16 @@ test('real component loads scoped attempt; background alone cannot complete or a
  assert.equal(f.button('合成真实素材').disabled,false);f.button('合成真实素材').click();await settle();
  const request=f.requests.find(r=>r.url.endsWith('/finish'));assert.equal(request.body.scriptId,10);assert.equal(request.body.attemptId,1);assert.equal(request.body.confirmed,true);assert.deepEqual(request.body.screenQuad.topLeft,{x:132,y:268});
  assert.deepEqual(f.events.at(-1),{id:5,src:'/final.png',state:'已完成',reason:''});assert.ok(f.el.querySelector('img[src="/final.png"]'));
+});
+test('B1 composite defaults to execution prompt and never sends semantic UI text as background prompt',async t=>{
+ const f=fixture(t,{semanticPrompt:'Show the real Logo and UI text',imagePrompt:'Empty phone screen on a desk'});await settle();
+ assert.match(f.el.textContent,/Show the real Logo and UI text/);
+ assert.equal(f.el.querySelector('textarea').value,'Empty phone screen on a desk');
+ f.button('重新生成背景（新尝试）').click();await settle();
+ const start=f.requests.find(r=>r.url.endsWith('/start'));
+ assert.equal(start.body.prompt,'Empty phone screen on a desk');assert.equal(JSON.stringify(start.body).includes('Show the real Logo'),false);
+ const fallback=fixture(t,{semanticPrompt:'Real brand logo on phone',imagePrompt:null});await settle();
+ assert.match(fallback.el.querySelector('textarea').value,/屏幕不包含文字、按钮、Logo/);
 });
 test('editing quad revokes confirmation; retry creates new attempt without old quad; switching unit clears old output',async t=>{
  const f=fixture(t);await settle();await f.fill();const checkbox=f.el.querySelector('input[type=checkbox]');checkbox.checked=true;checkbox.dispatchEvent(new Event('change',{bubbles:true}));await settle();

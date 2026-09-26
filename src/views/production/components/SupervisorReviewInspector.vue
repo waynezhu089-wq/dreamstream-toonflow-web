@@ -5,11 +5,13 @@
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <p v-if="loading">正在读取当前分镜与审核记录…</p>
       <template v-if="target && gate">
+        <p v-if="currentReview && !currentReview.gateDriving" class="warning" role="status">Legacy Advisory Review — not driving the current production Gate</p>
         <h3>{{ target.review.displayName }}</h3>
+        <p>Advanced provenance：{{ currentReview?.reviewKey }} · {{ currentReview?.targetAdapterKey }} · {{ currentReview?.gateKey }}</p>
         <p>审核目标：{{ target.target.targetAdapterKey }} · {{ target.target.targetType }} · {{ target.target.summary }}</p>
         <p>分镜版本：<code :title="target.target.targetHash">{{ target.target.targetHash.slice(0, 12) }}</code>；控制上下文：<code :title="target.controlContextHash">{{ target.controlContextHash.slice(0, 12) }}</code></p>
         <p>Production Profile：{{ target.profile.profileKey }} @ {{ target.profile.profileVersion }}；Recipe：{{ target.recipe ? `${target.recipe.recipeKey} @ ${target.recipe.recipeVersion}` : '未绑定' }}</p>
-        <p>当前决定：{{ gate.effectiveDecision || '尚无有效审核决定' }}；Gate：<strong :class="gate.pass ? 'pass' : 'error'">{{ gate.code }}</strong><span v-if="gate.reason"> · {{ gate.reason }}</span></p>
+        <p>{{ currentReview?.gateDriving ? '当前决定' : 'Advisory Decision' }}：{{ gate.effectiveDecision || '尚无有效审核决定' }}；{{ currentReview?.gateDriving ? 'Gate' : 'Advisory Check' }}：<strong :class="gate.pass ? 'pass' : 'error'">{{ gate.code }}</strong><span v-if="gate.reason"> · {{ gate.reason }}</span></p>
         <p v-if="gate.code === 'SUPERVISOR_HUMAN_CONFIRM_REQUIRED'" class="warning">AI 认为需要人工确认；请人工检查后选择 PASS 或 REVISE。</p>
         <p v-if="gate.staleCount" class="warning">已有 {{ gate.staleCount }} 条过期审核记录，不能用于当前 Gate。</p>
         <div class="actions">
@@ -63,13 +65,13 @@ import axios from '@/utils/axios';
 const props = defineProps<{ visible: boolean; projectId: number; scriptId: number }>();
 defineEmits<{ close: [] }>();
 type Issue = { severity: 'BLOCKER' | 'WARNING' | 'INFO'; code: string; message: string; suggestion: string | null; evidence: string | null };
-const reviewKey = 'storyboard.semantic-approval';
+const currentReview = ref<any>(null);
 const target = ref<any>(null), gate = ref<any>(null), history = ref<any[]>([]);
 const aiContext = ref<any>(null), aiError = ref(''), aiLoading = ref(false), aiBusy = ref(false);
 const loading = ref(false), busy = ref(false), error = ref(''), showRevise = ref(false), summary = ref('');
 const issues = ref<Issue[]>([]);
 let epoch = 0;
-const scope = () => ({ projectId: props.projectId, scriptId: props.scriptId, reviewKey });
+const scope = () => ({ projectId: props.projectId, scriptId: props.scriptId, reviewKey: currentReview.value?.reviewKey });
 const post = async (path: string, body: unknown) => (await axios.post(`/supervisor/${path}`, body)).data;
 function fail(value: any) { error.value = value?.message || value?.response?.data?.message || 'Supervisor 操作失败'; }
 function failAi(value: any) { aiError.value = value?.response?.data?.message || value?.message || 'AI 审查暂时不可用'; }
@@ -77,8 +79,11 @@ function addIssue() { issues.value.push({ severity: 'BLOCKER', code: 'STORYBOARD
 async function load() {
   const current = ++epoch;
   if (!props.visible || !props.projectId || !props.scriptId) return;
-  loading.value = true; error.value = ''; aiError.value = ''; target.value = null; gate.value = null; history.value = []; aiContext.value = null;
+  loading.value = true; error.value = ''; aiError.value = ''; currentReview.value = null; target.value = null; gate.value = null; history.value = []; aiContext.value = null;
   try {
+    const resolved = await post('current/resolve', { projectId: props.projectId, scriptId: props.scriptId });
+    if (current !== epoch) return;
+    currentReview.value = resolved;
     const [nextTarget, nextHistory, nextGate] = await Promise.all([post('target/read', scope()), post('review/history', scope()), post('gate/check', scope())]);
     if (current === epoch) { target.value = nextTarget; history.value = nextHistory.history; gate.value = nextGate; void loadAi(current); }
   } catch (value) { if (current === epoch) fail(value); }
@@ -114,7 +119,7 @@ function pass() {
   void submit('PASS', '人工确认当前 Storyboard 语义与生产规划通过。', []);
 }
 function revise() { void submit('REVISE', summary.value.trim(), issues.value); }
-watch(() => [props.visible, props.projectId, props.scriptId], () => { ++epoch; target.value = null; gate.value = null; history.value = []; aiContext.value = null; aiError.value = ''; if (props.visible) void load(); }, { immediate: true });
+watch(() => [props.visible, props.projectId, props.scriptId], () => { ++epoch; currentReview.value = null; target.value = null; gate.value = null; history.value = []; aiContext.value = null; aiError.value = ''; if (props.visible) void load(); }, { immediate: true });
 </script>
 <style scoped>
 .supervisor-inspector{max-height:calc(100vh - 160px);overflow-y:auto;overscroll-behavior:contain;padding:4px 12px 16px;color:var(--td-text-color-primary)}

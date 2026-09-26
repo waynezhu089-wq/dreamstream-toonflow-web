@@ -46,6 +46,7 @@ export interface Storyboard extends StoryboardProduction {
   id?: number;
   duration?: number;
   prompt: string;
+  imagePrompt?: string | null;
   trackId?: number;
   associateAssetsIds?: number[];
   src: string | null;

@@ -10,6 +10,7 @@
     @close="$emit('close')">
     <div class="composite-panel" @wheel.stop @pointerdown.stop @mousedown.stop>
       <p>先生成不含真实界面的背景，再人工确认屏幕四角，将已绑定的真实素材透视合成。只有最终合成图才算镜头完成。</p>
+      <p>镜头语义（仅供创意参考，不直接发送给背景模型）：{{ semanticPrompt || '未填写' }}</p>
       <label>背景描述（不要描述或要求生成真实 UI）<textarea v-model="prompt" rows="4" :disabled="busy" /></label>
       <div class="parameters">
         <label>宽度<input v-model.number="width" type="number" min="256" max="2048" step="16" :disabled="busy" /></label>
@@ -48,13 +49,14 @@
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from "vue";
 import axios from "@/utils/axios";
-const props = defineProps<{ projectId: number; scriptId: number; storyboardId: number; primaryAssetId: number; capabilityId?: string | null }>();
+const props = defineProps<{ projectId: number; scriptId: number; storyboardId: number; primaryAssetId: number; capabilityId?: string | null; semanticPrompt?: string | null; imagePrompt?: string | null }>();
 const emit = defineEmits<{ close: []; completed: [value: { id: number; src: string; state: string; reason: string }]; pending: [value: { id: number; src: null; state: string; reason: string }] }>();
 type Corner = "topLeft" | "topRight" | "bottomRight" | "bottomLeft";
 const corners: { key: Corner; label: string }[] = [{ key: "topLeft", label: "左上" }, { key: "topRight", label: "右上" }, { key: "bottomRight", label: "右下" }, { key: "bottomLeft", label: "左下" }];
 const emptyQuad = () => Object.fromEntries(corners.map(c => [c.key, { x: null as number | null, y: null as number | null }])) as Record<Corner, { x: number | null; y: number | null }>;
 const quad = ref(emptyQuad()), confirmed = ref(false), attempt = ref<any>(null), pending = ref(false), error = ref("");
-const prompt = ref("书桌近景，英文阅读材料和笔，一部竖立且略带透视角度的手机，完整可见的空白深色屏幕，冷色侧光。屏幕不包含文字、按钮、Logo 或界面，不被手指遮挡。");
+const safeBackgroundPrompt = "书桌近景，英文阅读材料和笔，一部竖立且略带透视角度的手机，完整可见的空白深色屏幕，冷色侧光。屏幕不包含文字、按钮、Logo 或界面，不被手指遮挡。";
+const prompt = ref(props.imagePrompt?.trim() || safeBackgroundPrompt);
 const width = ref(576), height = ref(1024), seed = ref(1);
 const busy = computed(() => pending.value || ["BACKGROUND_GENERATING", "BACKGROUND_RUNNING", "COMPOSITING"].includes(attempt.value?.status));
 const hasQuad = computed(() => corners.every(c => Number.isFinite(quad.value[c.key].x) && Number.isFinite(quad.value[c.key].y)));
@@ -99,6 +101,7 @@ async function finish() {
 }
 watch(() => [props.projectId, props.scriptId, props.storyboardId], () => {
   generation++; clearTimeout(timer); attempt.value = null; quad.value = emptyQuad(); confirmed.value = false; pending.value = false; error.value = "";
+  prompt.value = props.imagePrompt?.trim() || safeBackgroundPrompt;
   void read(generation);
 }, { immediate: true });
 onUnmounted(() => { generation++; clearTimeout(timer); });

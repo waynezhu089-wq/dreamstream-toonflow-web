@@ -55,7 +55,7 @@
         <template v-if="preview">
           <p>Resolved Skill：{{ preview.resolvedSkill.skillId }} @ {{ preview.resolvedSkill.skillVersion }} · {{ preview.resolvedSkill.resolvedFrom.scopeType }}</p>
           <p>Override Chain：{{ preview.resolvedSkill.overrideChain.map((item: any) => `${item.scopeType}: ${item.text}`).join(' → ') || '无' }}</p>
-          <div class="compare"><div><h4>Current Prompt</h4><pre>{{ preview.currentPrompt }}</pre></div><div><h4>New Complete Prompt</h4><pre>{{ preview.compiledPrompt }}</pre></div></div>
+          <div class="compare"><div><h4>Semantic Prompt</h4><pre>{{ preview.currentSemanticPrompt }}</pre></div><div><h4>Current Image Prompt</h4><pre>{{ preview.currentImagePrompt || '尚未设置（生成时使用 Semantic Prompt）' }}</pre></div><div><h4>New Complete Image Prompt</h4><pre>{{ preview.compiledImagePrompt }}</pre></div></div>
           <label><input v-model="applyConfirmed" type="checkbox" />我已核对完整新 Prompt 与真实素材约束，决定应用到这一镜</label>
           <t-button theme="primary" :disabled="!applyConfirmed" :loading="busy" @click="apply">应用到 Storyboard</t-button>
         </template>
@@ -68,7 +68,7 @@
 import { computed, ref, watch } from "vue";
 import axios from "@/utils/axios";
 import SkillBuilderPanel from "@/components/SkillBuilderPanel.vue";
-const props = defineProps<{ projectId: number; scriptId: number; storyboardId: number; currentPrompt: string; promptSkillId?: string | null; promptSkillVersion?: string | null }>();
+const props = defineProps<{ projectId: number; scriptId: number; storyboardId: number; semanticPrompt: string; imagePrompt?: string | null; promptSkillId?: string | null; promptSkillVersion?: string | null }>();
 const emit = defineEmits<{ close: []; applied: [value: any] }>();
 type Choice = { skillId: string; skillVersion: string; displayName: string; reason: string };
 const resolved = ref<any>(null), preview = ref<any>(null), error = ref(""), notice = ref(""), busy = ref(false);
@@ -123,7 +123,7 @@ async function compile() {
 async function apply() {
   if (!preview.value || !applyConfirmed.value) return;
   busy.value = true; error.value = "";
-  try { const result = await api("compile/apply", { compileId: preview.value.compileId, ...scope() }); emit("applied", result.storyboard); await load(); notice.value = "完整 Prompt 已应用；镜头图片状态按现有分镜修改规则更新。"; }
+  try { const result = await api("compile/apply", { compileId: preview.value.compileId, ...scope() }); emit("applied", result.storyboard); await load(); notice.value = "完整 Image Prompt 已应用到镜头执行层；语义审核保持不变。"; }
   catch (e) { showError(e); } finally { busy.value = false; }
 }
 async function onDerivedSaved(value: any) { derivedOpen.value = false; await load(); notice.value = `${value.family.displayName} 已保存为 Draft V1；需要人工激活后才可绑定。`; }
