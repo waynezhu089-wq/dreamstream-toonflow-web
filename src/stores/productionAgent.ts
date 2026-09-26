@@ -283,7 +283,7 @@ function makeProductionAgentStore(projectId: string) {
               const findData = data.find((i: any) => i.id == item.id);
               if (findData) {
                 item.state = findData.state;
-                if (findData.src) item.src = findData.src;
+                if (!findData.attemptId || findData.src) item.src = findData.src;
                 if (findData.attemptId) item.imageProvenance = { ...(item.imageProvenance ?? {
                   freshness: item.src ? "LEGACY" : "NONE", currentAttemptId: null, producerType: null, producerRef: null,
                   sourceHash: null, staleCode: null, staleReason: null, latestAttemptStatus: null,
@@ -367,6 +367,7 @@ function makeProductionAgentStore(projectId: string) {
         });
         if (!data || data.length === 0) return;
         const records = data as Array<{ id: number; state: string; src?: string; errorReason?: string; prompt?: string }>;
+        const refreshAttemptProvenance = records.some((record) => flowData.value.storyboard.some((item) => item.id === record.id && item.imageProvenance?.activeAttemptId));
         records.forEach((record) => {
           flowData.value.assets.forEach((asset) => {
             if (!asset.derive) return;
@@ -380,7 +381,7 @@ function makeProductionAgentStore(projectId: string) {
             });
           });
         });
-        if (records.length) await getFlowData();
+        if (refreshAttemptProvenance) await getFlowData();
       } catch (e) {
         console.error("[assetsPolling] error", e);
       } finally {

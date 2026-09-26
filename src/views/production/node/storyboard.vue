@@ -38,7 +38,7 @@
                   </div>
 
                   <t-image
-                    v-if="item.src"
+                    v-if="item.src && (item.state === '已完成' || item.imageProvenance?.currentAttemptId)"
                     :src="item.src"
                     fit="contain"
                     class="frameImg"
