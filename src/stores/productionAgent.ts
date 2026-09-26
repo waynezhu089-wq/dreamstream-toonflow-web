@@ -367,7 +367,6 @@ function makeProductionAgentStore(projectId: string) {
         });
         if (!data || data.length === 0) return;
         const records = data as Array<{ id: number; state: string; src?: string; errorReason?: string; prompt?: string }>;
-        const refreshAttemptProvenance = records.some((record) => flowData.value.storyboard.some((item) => item.id === record.id && item.imageProvenance?.activeAttemptId));
         records.forEach((record) => {
           flowData.value.assets.forEach((asset) => {
             if (!asset.derive) return;
@@ -381,7 +380,6 @@ function makeProductionAgentStore(projectId: string) {
             });
           });
         });
-        if (refreshAttemptProvenance) await getFlowData();
       } catch (e) {
         console.error("[assetsPolling] error", e);
       } finally {
@@ -434,6 +432,10 @@ function makeProductionAgentStore(projectId: string) {
         });
         if (!data || data.length === 0) return;
         const records = data as Array<{ id: number; state: string; src?: string; reason?: string }>;
+        // Polling omits Attempt provenance. Refresh once for this terminal batch
+        // while the local shot still records the active controlled attempt.
+        const refreshAttemptProvenance = records.some((record) => record.state !== "生成中" &&
+          flowData.value.storyboard.some((item) => item.id === record.id && !!item.imageProvenance?.activeAttemptId));
         records.forEach((record) => {
           const item = flowData.value.storyboard.find((s) => s.id === record.id);
           if (item) {
@@ -442,6 +444,7 @@ function makeProductionAgentStore(projectId: string) {
             item.reason = record?.reason ?? "";
           }
         });
+        if (refreshAttemptProvenance) await getFlowData();
       } catch (e) {
         console.error("[storyboardPolling] error", e);
       } finally {
