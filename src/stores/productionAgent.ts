@@ -283,7 +283,11 @@ function makeProductionAgentStore(projectId: string) {
               const findData = data.find((i: any) => i.id == item.id);
               if (findData) {
                 item.state = findData.state;
-                item.src = findData.src;
+                if (findData.src) item.src = findData.src;
+                if (findData.attemptId) item.imageProvenance = { ...(item.imageProvenance ?? {
+                  freshness: item.src ? "LEGACY" : "NONE", currentAttemptId: null, producerType: null, producerRef: null,
+                  sourceHash: null, staleCode: null, staleReason: null, latestAttemptStatus: null,
+                }), activeAttemptId: findData.attemptId, latestAttemptStatus: "RUNNING" };
               }
             });
           }
@@ -376,6 +380,7 @@ function makeProductionAgentStore(projectId: string) {
             });
           });
         });
+        if (records.length) await getFlowData();
       } catch (e) {
         console.error("[assetsPolling] error", e);
       } finally {

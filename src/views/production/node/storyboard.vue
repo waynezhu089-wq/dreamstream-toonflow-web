@@ -38,7 +38,7 @@
                   </div>
 
                   <t-image
-                    v-if="item.src && item.state == '已完成'"
+                    v-if="item.src"
                     :src="item.src"
                     fit="contain"
                     class="frameImg"
@@ -49,6 +49,11 @@
                       </div>
                     </template>
                   </t-image>
+                  <div v-if="item.imageProvenance && item.src" class="imageProvenance" :title="item.imageProvenance.staleReason || undefined">
+                    {{ item.imageProvenance.freshness === 'STALE' ? 'STALE · 来源已变化，旧图片保留' : item.imageProvenance.freshness === 'LEGACY' ? 'LEGACY · 历史图片' : item.imageProvenance.freshness === 'CURRENT' ? 'CURRENT · 已核验' : '' }}
+                  </div>
+                  <div v-if="item.imageProvenance?.activeAttemptId" class="attemptProgress">正在生成新任务，旧图片保留…</div>
+                  <div v-else-if="item.imageProvenance?.latestAttemptStatus === 'FAILED' && item.src" class="attemptProgress">最近一次重试失败，旧图片已保留</div>
                   <div v-else class="generatingPlaceholder" @click="editStoryboaryImage(item, [])">
                     <t-loading v-if="item.state === '生成中'" size="small" />
                     <t-tooltip v-else-if="item.state == '生成失败'" :content="item?.reason">
@@ -625,6 +630,21 @@ function editInfo(item: Storyboard) {
       }
     }
   }
+
+  .imageProvenance, .attemptProgress {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    bottom: 4px;
+    z-index: 4;
+    padding: 2px 4px;
+    border-radius: 3px;
+    background: var(--td-bg-color-container);
+    color: var(--td-text-color-primary);
+    font-size: 11px;
+    pointer-events: none;
+  }
+  .attemptProgress { bottom: 24px; }
 
   .frameCheckbox {
     position: absolute;

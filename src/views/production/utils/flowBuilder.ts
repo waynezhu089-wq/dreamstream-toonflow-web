@@ -43,6 +43,17 @@ export interface AssetItem {
 }
 
 export interface Storyboard extends StoryboardProduction {
+  imageProvenance?: {
+    freshness: "NONE" | "LEGACY" | "CURRENT" | "STALE";
+    currentAttemptId: string | null;
+    activeAttemptId: string | null;
+    producerType: string | null;
+    producerRef: string | null;
+    sourceHash: string | null;
+    staleCode: string | null;
+    staleReason: string | null;
+    latestAttemptStatus: string | null;
+  };
   id?: number;
   duration?: number;
   prompt: string;
