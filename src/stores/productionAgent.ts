@@ -1,4 +1,5 @@
 import axios from "@/utils/axios";
+import { storyboardProductionFields } from "@/utils/storyboardProduction";
 import projectStore from "@/stores/project";
 import settingStore from "@/stores/setting";
 import { useChat } from "@/utils/useChat";
@@ -8,22 +9,40 @@ import { useThrottleFn } from "@vueuse/core";
 
 function makeProductionAgentStore(projectId: string) {
   return defineStore(`productionAgent-${projectId}`, () => {
-    const defMsg: ChatMessagesData[] = [
+    const isAdvertisement = computed(
+      () => projectStore().project?.projectType === "general_video" && projectStore().project?.type === "advertisement",
+    );
+    const defMsg = computed<ChatMessagesData[]>(() => [
       {
         id: "welcome",
         role: "assistant",
         content: [
-          { type: "text", status: "complete", data: $t("workbench.production.chatBox.welcomeMessage") },
+          {
+            type: "text",
+            status: "complete",
+            data: isAdvertisement.value
+              ? $t("workbench.production.chatBox.adWelcomeMessage")
+              : $t("workbench.production.chatBox.welcomeMessage"),
+          },
           {
             type: "suggestion",
             status: "complete",
-            data: [{ title: $t("workbench.production.chatBox.startMakingVideo"), prompt: $t("workbench.production.chatBox.startMakingVideoPrompt") }],
+            data: [
+              {
+                title: isAdvertisement.value
+                  ? $t("workbench.production.chatBox.adStartPlanning")
+                  : $t("workbench.production.chatBox.startMakingVideo"),
+                prompt: isAdvertisement.value
+                  ? $t("workbench.production.chatBox.adStartPlanningPrompt")
+                  : $t("workbench.production.chatBox.startMakingVideoPrompt"),
+              },
+            ],
           },
         ],
       },
-    ];
+    ]);
     onMounted(() => {
-      if (messages.value.length <= 0) messages.value = [...defMsg, ...messages.value];
+      if (messages.value.length <= 0) messages.value = [...defMsg.value, ...messages.value];
     });
 
     const flowData = ref<FlowData>({
@@ -194,6 +213,7 @@ function makeProductionAgentStore(projectId: string) {
           });
           s.on("addStoryboard", async (data, callback) => {
             const insertVal = {
+              ...storyboardProductionFields(data),
               prompt: data.prompt || "",
               duration: Number(data.duration) || 0,
               track: data.track || "",
@@ -210,6 +230,20 @@ function makeProductionAgentStore(projectId: string) {
             await addStoryboardInfo([insertVal]);
             throttledFn();
             callback({ success: true, message: $t("storyboard.assets.derivativeAddSuccess") });
+          });
+          s.on("replaceStoryboard", async (payload: { items: any[] }, callback) => {
+            try {
+              const { data } = await axios.post("/production/storyboard/replaceStoryboard", {
+                scriptId: episodesId.value,
+                projectId: projectId,
+                data: payload.items,
+              });
+              flowData.value.storyboard = data;
+              await setFlowData(episodesId.value);
+              callback?.({ success: true, message: `已替换为 ${data.length} 条分镜`, data });
+            } catch (e: any) {
+              callback?.({ success: false, error: e?.message || "整套替换分镜失败" });
+            }
           });
         }
       },
@@ -256,7 +290,7 @@ function makeProductionAgentStore(projectId: string) {
         }
         return data;
       } catch (e) {
-        window.$message.error((e as any)?.message);
+        throw e;
       }
     }
     async function batchGenerateAssets(allIds: number[]) {
@@ -460,6 +494,7 @@ function makeProductionAgentStore(projectId: string) {
       flowData.value.storyboard.forEach((item) => {
         const updated = data.find((d: Storyboard) => d.prompt == item.prompt && d.duration == item.duration && d.videoDesc == item.videoDesc);
         if (updated) {
+          Object.assign(item, storyboardProductionFields(updated));
           item.id = updated.id;
           item.trackId = updated.trackId;
           item.src = updated.src;
@@ -478,7 +513,7 @@ function makeProductionAgentStore(projectId: string) {
         agentType: "productionAgent",
       });
       messages.value = [];
-      messages.value = [...defMsg, ...data];
+      messages.value = [...defMsg.value, ...data];
       loadingHistory.value = false;
     }
 

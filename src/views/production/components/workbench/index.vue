@@ -124,7 +124,11 @@ function getMediaType(src?: string): MediaType {
   return "unknown";
 }
 //切换菜单
-function changeMenu(type: string) {
+async function changeMenu(type: string) {
+  if (type === "generate" && project.value?.projectType === "general_video" && project.value.type === "advertisement") {
+    try { await axios.post("/modelSelect/presets/check", { projectId: Number(project.value.id), slot: "video" }); }
+    catch (e: any) { window.$message.warning(e?.message || "请先配置视频生成模型"); return; }
+  }
   activeMenu.value = type;
   if (type == "editVideo") editFootage();
 }

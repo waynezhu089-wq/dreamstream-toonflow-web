@@ -39,6 +39,7 @@ const { project } = storeToRefs(projectStore());
 const props = defineProps<{
   type: "role" | "tool" | "scene" | "clip" | "audio";
   title: string;
+  scriptId?: number | null;
   formData: {
     id: number;
     name: string;
@@ -84,6 +85,7 @@ function onConfirm() {
             remark: props.formData.remark,
             type: props.type,
             projectId: project.value?.id,
+            scriptId: props.scriptId ?? undefined,
             prompt: props.formData.prompt,
           })
           .then(() => {

@@ -118,6 +118,42 @@ export function useChat(options: UseChatOptions) {
   const emittedXmlState = new Map<string, Record<string, string>>();
   const rawContentState = new Map<string, string>();
 
+  let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+  const INACTIVITY_TIMEOUT_MS = 180_000;
+
+  const clearInactivityTimer = () => {
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+    }
+  };
+
+  const recoverGenerationState = (reason: "error" | "disconnect" | "connect_error" | "timeout") => {
+    const id = currentMessageId.value;
+    if (id) {
+      const msg = findMessage(id);
+      if (msg && (msg.status === "pending" || msg.status === "streaming")) {
+        msg.status = reason === "error" ? "error" : "stop";
+      }
+    }
+    currentMessageId.value = null;
+    status.value = "idle";
+    clearInactivityTimer();
+  };
+
+  const touchGenerationActivity = () => {
+    clearInactivityTimer();
+    if (!currentMessageId.value || status.value === "idle") return;
+    inactivityTimer = setTimeout(() => {
+      const id = currentMessageId.value;
+      if (id && socket.value?.connected) {
+        socket.value.emit("stop", { messageId: id });
+      }
+      console.warn("[Chat] generation recovered after 180s inactivity");
+      recoverGenerationState("timeout");
+    }, INACTIVITY_TIMEOUT_MS);
+  };
+
   // 计算属性 - 修复：增加对内容流状态的判断
   const isGenerating = computed(() => {
     const lastMsg = messages.value[messages.value.length - 1];
@@ -355,6 +391,7 @@ export function useChat(options: UseChatOptions) {
   // 处理内容更新的核心逻辑
   const handleContentUpdate = (event: ContentUpdateEvent) => {
     const { messageId, contentId, type, data, strategy, status: eventStatus } = event;
+    touchGenerationActivity();
 
     const msg = findMessage(messageId) as AIMessage;
     if (!msg || msg.role !== "assistant") return;
@@ -450,13 +487,21 @@ export function useChat(options: UseChatOptions) {
       }
 
       if (data.role === "assistant") {
-        currentMessageId.value = data.id;
-        status.value = data.status === "streaming" ? "streaming" : "pending";
+        if (data.status === "complete" || data.status === "error" || data.status === "stop") {
+          currentMessageId.value = null;
+          status.value = "idle";
+          clearInactivityTimer();
+        } else {
+          currentMessageId.value = data.id;
+          status.value = data.status === "streaming" ? "streaming" : "pending";
+          touchGenerationActivity();
+        }
       }
     });
 
     // 消息状态更新
     socket.value.on("message:update", (data: MessageUpdateEvent) => {
+      touchGenerationActivity();
       const msg = findMessage(data.id);
       if (!msg) return;
 
@@ -490,11 +535,13 @@ export function useChat(options: UseChatOptions) {
           currentMessageId.value = null;
           status.value = "idle";
         }
+        clearInactivityTimer();
       }
     });
 
     // 添加内容块 - 修复：不要在这里改变消息状态
     socket.value.on("content:add", (data: ContentAddEvent) => {
+      touchGenerationActivity();
       const msg = findMessage(data.messageId) as AIMessage;
       if (!msg || msg.role !== "assistant") return;
 
@@ -543,6 +590,7 @@ export function useChat(options: UseChatOptions) {
     // 错误处理
     socket.value.on("error", (error: { code: string; message: string }) => {
       console.error("[Chat Error]", error);
+      recoverGenerationState("error");
       onError?.(error);
     });
 
@@ -556,6 +604,7 @@ export function useChat(options: UseChatOptions) {
     socket.value.on("disconnect", (reason) => {
       connected.value = false;
       connecting.value = false;
+      recoverGenerationState("disconnect");
       onDisconnect?.();
       console.log("[Chat Disconnected]", reason);
     });
@@ -563,6 +612,7 @@ export function useChat(options: UseChatOptions) {
     socket.value.on("connect_error", (error) => {
       connected.value = false;
       connecting.value = false;
+      recoverGenerationState("connect_error");
       console.error("[Chat Connect Error]", error);
     });
   };
@@ -594,6 +644,7 @@ export function useChat(options: UseChatOptions) {
     socket.value?.disconnect();
     connected.value = false;
     connecting.value = false;
+    recoverGenerationState("disconnect");
   };
 
   const reconnect = () => {
@@ -653,6 +704,7 @@ export function useChat(options: UseChatOptions) {
   const stopGenerate = (messageId?: string) => {
     const id = messageId || currentMessageId.value;
     if (!id) return false;
+    clearInactivityTimer();
 
     // 立即更新本地状态，不等服务端响应
     const msg = findMessage(id);
@@ -671,6 +723,7 @@ export function useChat(options: UseChatOptions) {
 
   // 消息管理
   const clearMessages = () => {
+    clearInactivityTimer();
     messages.value = [];
     currentMessageId.value = null;
     status.value = "idle";

@@ -80,6 +80,7 @@
             </template>
           </t-button>
         </t-tooltip>
+        <t-button v-if="project?.id && episodesId" variant="outline" style="margin-left:8px" @click.stop="supervisorVisible = true">Advanced · Supervisor Review</t-button>
         <i-loading-four class="spin" size="16" style="margin-left: 0.5rem" v-show="loading"></i-loading-four>
         <!-- <t-tooltip theme="primary" content="$t('workbench.production.autoLayoutTB')">
           <div class="item c" @click="layoutGraph('TB')">
@@ -97,6 +98,7 @@
     <t-guide v-model="current" :steps="steps" @finish="() => (current = -1)" />
     <t-tag variant="outline" class="fps" v-if="!openShowVisible">{{ fps }}</t-tag>
   </VueFlow>
+  <SupervisorReviewInspector v-if="project?.id && episodesId" :visible="supervisorVisible" :project-id="Number(project.id)" :script-id="Number(episodesId)" @close="supervisorVisible = false" />
 </template>
 
 <script setup lang="ts">
@@ -116,15 +118,20 @@ import storyboard from "./node/storyboard.vue";
 import workbench from "./node/workbench.vue";
 import poster from "./node/poster.vue";
 import rightChatBox from "./components/rightChatBox/index.vue";
+import SupervisorReviewInspector from "./components/SupervisorReviewInspector.vue";
 import { useLayout } from "./utils/dagre";
 import { useFlowBuilder } from "./utils/flowBuilder";
 import axios from "@/utils/axios";
+import { currentAdvertisementUnit, selectAdvertisementUnit, advertisementLocation } from "@/utils/advertisementUnit";
 import projectStore from "@/stores/project";
 
 const { project } = storeToRefs(projectStore());
+const router = useRouter();
+const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
 import settingStore from "@/stores/setting";
 const { canvasWheelEvent, otherSetting } = storeToRefs(settingStore());
 const openShowVisible = ref(true);
+const supervisorVisible = ref(false);
 const {
   toObject,
   fromObject,
@@ -242,7 +249,30 @@ async function waitForNodesReady(maxRetries = 60, delay = 100) {
   return false;
 }
 
+const advertisementRoute = useRoute();
+let advertisementViewActive = true;
+onBeforeUnmount(() => { advertisementViewActive = false; });
 onMounted(async () => {
+  if (isAdvertisement.value && project.value?.id) {
+    try {
+      const projectId = Number(project.value.id);
+      const scriptId = currentAdvertisementUnit(projectId, advertisementRoute.query.scriptId);
+      if (!scriptId) { await router.replace("/assets"); return; }
+      const { data } = await axios.post("/project/advertisement/getWorkflowState", { projectId, scriptId });
+      if (!advertisementViewActive || Number(project.value?.id) !== projectId || currentAdvertisementUnit(projectId, advertisementRoute.query.scriptId) !== scriptId) return;
+      if (data.ready !== true || data.projectId !== projectId || data.scriptId !== scriptId) {
+        window.$message.warning($t("workbench.menu.adProductionBlocked"));
+        await router.replace(advertisementLocation("/assets", project.value?.id, advertisementRoute.query.scriptId));
+        return;
+      }
+    } catch (e: any) {
+      if (!advertisementViewActive) return;
+      window.$message.error(e?.message || $t("workbench.menu.adWorkflowCheckFailed"));
+      await router.replace(advertisementLocation("/assets", project.value?.id, advertisementRoute.query.scriptId));
+      return;
+    }
+  }
+
   await getScriptData();
   if (!episodesId.value) return;
 
@@ -289,23 +319,36 @@ function handleEpisodesChange(value: unknown) {
   void (async () => {
     if (!(await confirmEpisodesSwitch())) return;
 
+    if (isAdvertisement.value) {
+      selectAdvertisementUnit(project.value?.id, nextEpisodesId);
+      await router.replace(advertisementLocation("/production", project.value?.id, nextEpisodesId));
+      return;
+    }
     episodesId.value = nextEpisodesId;
     await productionAgentStore().getFlowData();
   })();
 }
 
 async function getScriptData() {
+  const adProjectId = Number(project.value?.id);
+  const adScriptId = currentAdvertisementUnit(adProjectId, advertisementRoute.query.scriptId);
   //获取剧本
   const { data: scriptRes } = await axios.post("/script/getScrptApi", {
     projectId: project.value?.id,
     name: "",
   });
+  if (isAdvertisement.value && (!advertisementViewActive || Number(project.value?.id) !== adProjectId || currentAdvertisementUnit(adProjectId, advertisementRoute.query.scriptId) !== adScriptId)) return;
   episodesOptions.value = scriptRes.map((ep: any) => ({
     label: ep.name,
     value: ep.id,
   }));
   if (episodesOptions.value.length) {
-    episodesId.value = episodesOptions.value[0].value;
+    if (isAdvertisement.value) {
+      const selected = currentAdvertisementUnit(project.value?.id, advertisementRoute.query.scriptId);
+      if (!selected || !episodesOptions.value.some(unit => unit.value === selected)) { await router.replace("/assets"); return; }
+      episodesId.value = selected;
+      selectAdvertisementUnit(project.value?.id, selected);
+    } else episodesId.value = episodesOptions.value[0].value;
   }
   if (status.value !== "pending" && status.value !== "streaming") {
     episodesId.value && (await productionAgentStore().getFlowData());
@@ -461,32 +504,39 @@ async function refFlowData() {
 }
 
 const current = useLocalStorage("productionCurrent", 0);
-const steps = [
-  {
-    element: ".episodesSelect",
-    title: $t("workbench.production.guideSwitchEpisode"),
-    body: $t("workbench.production.guideSwitchEpisodeBody"),
-    placement: "bottom",
-  },
-  {
-    element: ".guide-refresh-btn",
-    title: $t("workbench.production.guideRefresh"),
-    body: $t("workbench.production.guideRefreshBody"),
-    placement: "bottom",
-  },
-  {
-    element: ".guide-layout-btn",
-    title: $t("workbench.production.guideLayoutBtn"),
-    body: $t("workbench.production.guideLayoutBtnBody"),
-    placement: "bottom",
-  },
-  {
-    element: ".vue-flow__controls",
-    title: $t("workbench.production.guideCanvasNav"),
-    body: $t("workbench.production.guideCanvasNavBody"),
-    placement: "right",
-  },
-] as any;
+const steps = computed(
+  () =>
+    [
+      {
+        element: ".episodesSelect",
+        title: isAdvertisement.value
+          ? $t("workbench.production.guideSwitchProductionUnit")
+          : $t("workbench.production.guideSwitchEpisode"),
+        body: isAdvertisement.value
+          ? $t("workbench.production.guideSwitchProductionUnitBody")
+          : $t("workbench.production.guideSwitchEpisodeBody"),
+        placement: "bottom",
+      },
+      {
+        element: ".guide-refresh-btn",
+        title: $t("workbench.production.guideRefresh"),
+        body: $t("workbench.production.guideRefreshBody"),
+        placement: "bottom",
+      },
+      {
+        element: ".guide-layout-btn",
+        title: $t("workbench.production.guideLayoutBtn"),
+        body: $t("workbench.production.guideLayoutBtnBody"),
+        placement: "bottom",
+      },
+      {
+        element: ".vue-flow__controls",
+        title: $t("workbench.production.guideCanvasNav"),
+        body: $t("workbench.production.guideCanvasNavBody"),
+        placement: "right",
+      },
+    ] as any,
+);
 
 const fps = ref(0);
 let lastFrameTime = performance.now();

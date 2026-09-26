@@ -22,6 +22,8 @@
               </div>
 
               <div class="frameCard">
+                <t-button v-if="project?.projectType === 'general_video' && project?.type === 'advertisement' && item.productionMode === 'REAL_AI_COMPOSITE' && item.primaryAssetId" size="small" @click.stop="compositeShot = item">背景 + 真实素材合成</t-button>
+                <t-button v-if="project?.projectType === 'general_video' && project?.type === 'advertisement' && item.id && item.productionMode !== 'REAL_ASSET_DIRECT'" size="small" variant="outline" @click.stop="skillShot = item">图片 Prompt Skill</t-button>
                 <div
                   class="frameImage"
                   :style="{
@@ -108,6 +110,8 @@
       </div>
     </div>
     <editImage v-model="visible" v-if="visible" :flowData="currentRow" type="storyboard" @save="save" />
+    <CompositeAttempt v-if="compositeShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="compositeShot.id!" :primary-asset-id="compositeShot.primaryAssetId!" :capability-id="compositeShot.capabilityId" :semantic-prompt="compositeShot.prompt" :image-prompt="compositeShot.imagePrompt" @close="compositeShot = null" @completed="applyCompositeState" @pending="applyCompositeState" />
+    <ImagePromptSkill v-if="skillShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="skillShot.id!" :semantic-prompt="skillShot.prompt ?? ''" :image-prompt="skillShot.imagePrompt" :prompt-skill-id="skillShot.promptSkillId" :prompt-skill-version="skillShot.promptSkillVersion" @close="skillShot = null" @applied="applySkillPrompt" />
     <t-image-viewer
       v-model:visible="previewVisible"
       v-if="previewVisible"
@@ -121,6 +125,8 @@
 <script setup lang="ts">
 import { useLocalStorage } from "@vueuse/core";
 import editImage from "../components/editImage/index.vue";
+import CompositeAttempt from "../components/CompositeAttempt.vue";
+import ImagePromptSkill from "../components/ImagePromptSkill.vue";
 import { LoadingPlugin } from "tdesign-vue-next";
 import { Handle, Position, type Edge } from "@vue-flow/core";
 import axios from "@/utils/axios";
@@ -140,6 +146,17 @@ const props = defineProps<{
 }>();
 
 const storyboard = defineModel<Storyboard[]>({ required: true });
+const compositeShot = ref<Storyboard | null>(null);
+const skillShot = ref<Storyboard | null>(null);
+function applyCompositeState(result: { id: number; src: string | null; state: string; reason: string }) {
+  const row = storyboard.value.find(s => s.id === result.id);
+  if (row) Object.assign(row, result);
+}
+function applySkillPrompt(result: Storyboard) {
+  const row = storyboard.value.find(s => s.id === result.id);
+  if (row) Object.assign(row, { imagePrompt: result.imagePrompt, promptSkillId: result.promptSkillId, promptSkillVersion: result.promptSkillVersion });
+}
+watch(() => [project.value?.id, episodesId.value], () => { compositeShot.value = null; skillShot.value = null; });
 
 const visible = ref(false);
 const previewVisible = ref(false);
@@ -169,7 +186,7 @@ function handleDeleteSelected() {
           dialog.destroy();
           return window.$message.error($t("workbench.production.node.storyboard.pleaseSelectImage"));
         }
-        axios.post("/production/storyboard/batchDelete", {
+        await axios.post("/production/storyboard/batchDelete", {
           ids: selectedIds.value,
           projectId: project.value?.id,
         });
@@ -265,8 +282,8 @@ async function batchGenerateImage() {
     await productionAgentStore().batchGenerateStoryboard(selectedIds.value, true);
     window.$message.success($t("workbench.production.node.storyboard.batchGenerateSuccess"));
     selectedIds.value = [];
-  } catch (e) {
-    window.$message.error($t("workbench.production.node.storyboard.batchGenerateFailed"));
+  } catch (e: any) {
+    window.$message.error(e?.response?.data?.message || e?.message || $t("workbench.production.node.storyboard.batchGenerateFailed"));
   } finally {
     generateLoading.value = false;
   }
@@ -348,17 +365,17 @@ async function save({ imageUrl, flowId }: { imageUrl: string; flowId: number }) 
   }
 
   // 更新模式：更新对应分镜的 src
+  await axios.post("/production/storyboard/updateStoryboardUrl", {
+    id: id,
+    url: imageUrl,
+    flowId,
+  });
   const target = storyboard.value.find((s) => s.id === id);
   if (target) {
     target.src = imageUrl;
     target.state = "已完成";
     target.flowId = flowId;
   }
-  await axios.post("/production/storyboard/updateStoryboardUrl", {
-    id: id,
-    url: imageUrl,
-    flowId,
-  });
 }
 
 async function removeFn(id: number) {
