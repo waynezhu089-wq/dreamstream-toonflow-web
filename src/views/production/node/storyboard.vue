@@ -50,7 +50,7 @@
                     </template>
                   </t-image>
                   <div v-if="item.imageProvenance && item.src" class="imageProvenance" :title="item.imageProvenance.staleReason || undefined">
-                    {{ item.imageProvenance.freshness === 'STALE' ? 'STALE · 来源已变化，旧图片保留' : item.imageProvenance.freshness === 'LEGACY' ? 'LEGACY · 历史图片' : item.imageProvenance.freshness === 'CURRENT' ? 'CURRENT · 已核验' : '' }}
+                    {{ item.imageProvenance.freshness === 'STALE' ? 'STALE · 来源已变化，旧图片保留' : item.imageProvenance.freshness === 'LEGACY' ? 'LEGACY · 历史图片' : item.imageProvenance.freshness === 'CURRENT' ? 'CURRENT · 已核验' : '' }}{{ item.imageProvenance.producerType === 'MANUAL_ATTACH' ? ' · 手动附图' : '' }}
                   </div>
                   <div v-if="item.imageProvenance?.activeAttemptId" class="attemptProgress">正在生成新任务，旧图片保留…</div>
                   <div v-else-if="item.imageProvenance?.latestAttemptStatus === 'FAILED' && item.src" class="attemptProgress">最近一次重试失败，旧图片已保留</div>
@@ -370,16 +370,30 @@ async function save({ imageUrl, flowId }: { imageUrl: string; flowId: number }) 
   }
 
   // 更新模式：更新对应分镜的 src
-  await axios.post("/production/storyboard/updateStoryboardUrl", {
-    id: id,
-    url: imageUrl,
-    flowId,
-  });
-  const target = storyboard.value.find((s) => s.id === id);
-  if (target) {
-    target.src = imageUrl;
-    target.state = "已完成";
-    target.flowId = flowId;
+  try {
+    const { data } = await axios.post("/production/storyboard/updateStoryboardUrl", {
+      id,
+      url: imageUrl,
+      flowId,
+      projectId: project.value?.id ? Number(project.value.id) : undefined,
+      scriptId: episodesId.value,
+    });
+    if (data?.attemptId) {
+      // The server owns the attached image and Attempt provenance.
+      await productionAgentStore().getFlowData();
+      return;
+    }
+    const target = storyboard.value.find((s) => s.id === id);
+    if (target) {
+      target.src = imageUrl;
+      target.state = "已完成";
+      target.flowId = flowId;
+    }
+  } catch (error: any) {
+    if (project.value?.projectType === "general_video" && project.value?.type === "advertisement") {
+      await productionAgentStore().getFlowData().catch(() => {});
+    }
+    window.$message.error(error?.response?.data?.data?.message || error?.message || "保存图片失败，旧图片已保留");
   }
 }
 

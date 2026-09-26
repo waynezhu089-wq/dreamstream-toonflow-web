@@ -12,7 +12,7 @@ test('Storyboard card keeps the retained image visible while generating and mark
   const compiled = vue.compileTemplate({ source: descriptor.template.content, filename: file, id: 'attempt-card' });
   assert.deepEqual(compiled.errors, []);
   assert.match(descriptor.template.content, /item\.state === '已完成' \|\| item\.imageProvenance\?\.currentAttemptId/);
-  for (const label of ['STALE', 'LEGACY', 'CURRENT', '正在生成新任务', '最近一次重试失败']) assert.ok(descriptor.template.content.includes(label), label);
+  for (const label of ['STALE', 'LEGACY', 'CURRENT', 'MANUAL_ATTACH', '手动附图', '正在生成新任务', '最近一次重试失败']) assert.ok(descriptor.template.content.includes(label), label);
   assert.match(descriptor.template.content, /item\.imageProvenance\?\.activeAttemptId/);
 });
 
@@ -90,4 +90,51 @@ test('terminal Storyboard polling reconciles controlled provenance once and leav
   assert.equal(refreshes, 0);
   assert.equal(legacy.state, '已完成');
   assert.equal(legacy.src, '/legacy-new.jpg');
+});
+
+test('Image Editor controlled save adopts server attach provenance once; failure retains old src and Legacy patches locally', async () => {
+  const file = path.join(root, 'src/views/production/node/storyboard.vue');
+  const descriptor = vue.parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor;
+  const ast = ts.createSourceFile('storyboard.ts', descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  let method;
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'save') method = node.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(method);
+  const js = ts.transpileModule(method, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  async function scenario(result, profile = 'advertisement') {
+    const item = { id: 7, src: '/old.jpg', state: '已完成', imageProvenance: { freshness: 'CURRENT', producerType: 'REAL_ASSET_DIRECT' } };
+    const storyboard = { value: [item] }, project = { value: { id: '1', projectType: 'general_video', type: profile } };
+    const episodesId = { value: 10 }, currentRowStoryboardInfo = { value: { id: 7, insertAfterIndex: null } };
+    let refreshes = 0, errorMessage = null, request;
+    const axios = { post: async (_url, body) => { request = body; if (result instanceof Error) throw result; return { data: result }; } };
+    const productionAgentStore = () => ({ getFlowData: async () => {
+      refreshes++;
+      item.src = result instanceof Error ? '/old.jpg' : '/server-kept.png';
+      item.imageProvenance = result instanceof Error
+        ? { freshness: 'CURRENT', producerType: 'REAL_ASSET_DIRECT', currentAttemptId: 'old', activeAttemptId: null }
+        : { freshness: 'CURRENT', producerType: 'MANUAL_ATTACH', currentAttemptId: 'attach-1', activeAttemptId: null };
+    } });
+    const window = { $message: { error: message => { errorMessage = message; } } };
+    const run = new Function('currentRowStoryboardInfo', 'axios', 'project', 'episodesId', 'storyboard', 'productionAgentStore', 'window', `${js};return save;`)(
+      currentRowStoryboardInfo, axios, project, episodesId, storyboard, productionAgentStore, window);
+    await run({ imageUrl: '/candidate.png', flowId: 9 });
+    return { item, refreshes, errorMessage, request };
+  }
+  const controlled = await scenario({ attemptId: 'attach-1', status: 'SUCCEEDED' });
+  assert.equal(controlled.refreshes, 1);
+  assert.equal(controlled.item.src, '/server-kept.png');
+  assert.equal(controlled.item.imageProvenance.producerType, 'MANUAL_ATTACH');
+  assert.equal(controlled.request.scriptId, 10);
+  assert.equal(controlled.request.projectId, 1);
+  const failed = await scenario(new Error('ATTACH_CANDIDATE_FILE_INVALID'));
+  assert.equal(failed.item.src, '/old.jpg');
+  assert.equal(failed.refreshes, 1);
+  assert.match(failed.errorMessage, /ATTACH_CANDIDATE_FILE_INVALID/);
+  const legacy = await scenario({ message: 'ok' }, 'short_drama');
+  assert.equal(legacy.refreshes, 0);
+  assert.equal(legacy.item.src, '/candidate.png');
+  assert.equal(legacy.item.state, '已完成');
 });
