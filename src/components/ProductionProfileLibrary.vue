@@ -16,9 +16,9 @@
     </div>
     <template v-if="selected">
       <h3>{{ selected.family.displayName }} · {{ selectedVersion }}</h3>
-      <p>状态：{{ current?.status }}</p>
+      <p>状态：{{ current?.status }} · Schema V{{ current?.definition.schemaVersion }} · Runtime：{{ current?.definition.schemaVersion === 2 ? current.definition.runtimeControl : 'Legacy Advisory' }}</p>
       <h4>工序</h4>
-      <ol><li v-for="stage in orderedStages" :key="stage.stageKey">{{ stage.displayName }} <small>({{ stage.stageKey }})</small> · {{ stage.required ? '必需' : '可选' }} · 入口 Gate: {{ stage.entryGateKey || '无' }} · 出口 Gate: {{ stage.exitGateKey || '无' }}</li></ol>
+      <ol><li v-for="stage in orderedStages" :key="stage.stageKey">{{ stage.displayName }} <small>({{ stage.stageKey }})</small> · {{ stage.required ? '必需' : '可选' }} · 入口 Gate: {{ stage.entryGateKey || '无' }} · 出口 Gate: {{ stage.exitGateKey || '无' }}<span v-if="current?.definition.schemaVersion === 2"> · 操作：{{ stage.operationKeys?.join('、') || '无' }}</span></li></ol>
       <h4>前进依赖</h4>
       <ul><li v-for="edge in current?.definition.transitions || []" :key="`${edge.fromStageKey}-${edge.toStageKey}`">{{ edge.fromStageKey }} → {{ edge.toStageKey }}</li></ul>
       <details><summary>Advanced · Profile 版本管理</summary>
@@ -44,8 +44,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import axios from "@/utils/axios";
-type Stage = { stageKey: string; displayName: string; required: boolean; uiOrder: number; entryGateKey: string | null; exitGateKey: string | null };
-type Version = { version: string; status: string; definition: { stages: Stage[]; transitions: { fromStageKey: string; toStageKey: string }[] } };
+type Stage = { stageKey: string; displayName: string; required: boolean; uiOrder: number; entryGateKey: string | null; exitGateKey: string | null; operationKeys?: string[] };
+type Version = { version: string; status: string; definition: { schemaVersion: 1 | 2; runtimeControl?: "ENFORCED"; stages: Stage[]; transitions: { fromStageKey: string; toStageKey: string }[] } };
 type Family = { profileKey: string; displayName: string; description: string; versions: Version[] };
 const families = ref<Family[]>([]), selected = ref<{ family: Family; versions: Version[] } | null>(null), selectedVersion = ref(""), definitionText = ref(""), error = ref("");
 const newKey = ref(""), newName = ref(""), newDescription = ref("");

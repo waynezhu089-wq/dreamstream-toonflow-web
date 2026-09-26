@@ -83,7 +83,7 @@ async function start() {
     if (epoch !== generation) return;
     quad.value = emptyQuad(); confirmed.value = false; accept(response.data);
     timer = setTimeout(() => read(epoch), 1500);
-  } catch (e: any) { if (epoch === generation) error.value = e.message || "背景生成失败"; }
+  } catch (e: any) { if (epoch === generation) error.value = e?.response?.data?.message || e.message || "背景生成失败"; }
   finally { if (epoch === generation) pending.value = false; }
 }
 function restart() {
@@ -94,7 +94,7 @@ async function finish() {
   try {
     const response = await axios.post("/production/storyboard/composite/finish", { ...scope(), attemptId: attempt.value.id, screenQuad: quad.value, confirmed: confirmed.value });
     if (epoch === generation) accept(response.data);
-  } catch (e: any) { if (epoch === generation) error.value = e.message || "真实素材合成失败"; }
+  } catch (e: any) { if (epoch === generation) error.value = e?.response?.data?.message || e.message || "真实素材合成失败"; }
   finally { if (epoch === generation) pending.value = false; }
 }
 watch(() => [props.projectId, props.scriptId, props.storyboardId], () => {

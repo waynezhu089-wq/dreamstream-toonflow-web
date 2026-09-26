@@ -282,8 +282,8 @@ async function batchGenerateImage() {
     await productionAgentStore().batchGenerateStoryboard(selectedIds.value, true);
     window.$message.success($t("workbench.production.node.storyboard.batchGenerateSuccess"));
     selectedIds.value = [];
-  } catch (e) {
-    window.$message.error($t("workbench.production.node.storyboard.batchGenerateFailed"));
+  } catch (e: any) {
+    window.$message.error(e?.response?.data?.message || e?.message || $t("workbench.production.node.storyboard.batchGenerateFailed"));
   } finally {
     generateLoading.value = false;
   }
@@ -365,17 +365,17 @@ async function save({ imageUrl, flowId }: { imageUrl: string; flowId: number }) 
   }
 
   // 更新模式：更新对应分镜的 src
+  await axios.post("/production/storyboard/updateStoryboardUrl", {
+    id: id,
+    url: imageUrl,
+    flowId,
+  });
   const target = storyboard.value.find((s) => s.id === id);
   if (target) {
     target.src = imageUrl;
     target.state = "已完成";
     target.flowId = flowId;
   }
-  await axios.post("/production/storyboard/updateStoryboardUrl", {
-    id: id,
-    url: imageUrl,
-    flowId,
-  });
 }
 
 async function removeFn(id: number) {

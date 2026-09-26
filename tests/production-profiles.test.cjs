@@ -46,12 +46,19 @@ test('generic Inspector uses current project and script, shows Gate blocker and 
   assert.equal(f.el.textContent.includes('尚未持久绑定'), false);
 });
 
-test('Profile Library displays exact versions and stage graph without project ID inputs', async t => {
-  const definition = { stages: [{ stageKey: 'music', displayName: 'Music', required: true, uiOrder: 10, entryGateKey: null, exitGateKey: null }], transitions: [] };
-  const post = async url => ({ data: url.endsWith('/list') ? [{ profileKey: 'mv', displayName: 'MV', description: '', versions: [{ version: 'v1', status: 'ACTIVE', definition }] }] : { family: { profileKey: 'mv', displayName: 'MV' }, versions: [{ version: 'v1', status: 'ACTIVE', definition }] } });
+test('Profile Library displays legacy and enforced versions with operation mapping', async t => {
+  const definition = { schemaVersion: 1, stages: [{ stageKey: 'music', displayName: 'Music', required: true, uiOrder: 10, entryGateKey: null, exitGateKey: null }], transitions: [] };
+  const enforced = { schemaVersion: 2, runtimeControl: 'ENFORCED', stages: [{ stageKey: 'image-production', displayName: 'Image Production', required: true, uiOrder: 10, entryGateKey: 'asset.ready', exitGateKey: 'image.done', operationKeys: ['storyboard.image.generate', 'storyboard.image.attach'] }], transitions: [] };
+  const versions = [{ version: 'v1', status: 'ACTIVE', definition }, { version: 'v2', status: 'DRAFT', definition: enforced }];
+  const post = async url => ({ data: url.endsWith('/list') ? [{ profileKey: 'mv', displayName: 'MV', description: '', versions }] : { family: { profileKey: 'mv', displayName: 'MV' }, versions } });
   const f = mount(t, component('components/ProductionProfileLibrary.vue', post)); await settle();
   f.button('v1 · ACTIVE').click(); await settle();
   assert.match(f.el.textContent, /Music/); assert.match(f.el.textContent, /MV · v1/);
+  assert.match(f.el.textContent, /Legacy Advisory/);
+  f.button('v2 · DRAFT').click(); await settle();
+  assert.match(f.el.textContent, /ENFORCED/);
+  assert.match(f.el.textContent, /storyboard.image.generate/);
+  assert.match(f.el.textContent, /asset.ready/);
   assert.equal(f.el.querySelector('input[placeholder*="project"]'), null);
 });
 

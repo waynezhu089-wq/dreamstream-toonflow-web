@@ -290,7 +290,7 @@ function makeProductionAgentStore(projectId: string) {
         }
         return data;
       } catch (e) {
-        window.$message.error((e as any)?.message);
+        throw e;
       }
     }
     async function batchGenerateAssets(allIds: number[]) {
