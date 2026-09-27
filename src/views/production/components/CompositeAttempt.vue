@@ -22,6 +22,8 @@
       <t-button v-if="busy && !pending" theme="default" @click="restart">尝试已中断？重新创建背景</t-button>
       <p v-if="error" role="alert" class="error">{{ error }}</p>
       <p v-if="attempt?.error" role="alert" class="error">{{ attempt.errorCode }}：{{ attempt.error }}</p>
+      <p v-if="attempt?.productionAttemptId && attempt.status === 'AWAITING_QUAD'">背景已准备，请确认四角。镜头原有图片仍保留。</p>
+      <p v-if="attempt?.status === 'STALE'" role="status">此次合成已失去当前镜头的生产权限；生成的文件仅保留在历史记录，原图片未被替换。</p>
       <template v-if="attempt?.backgroundUrl">
         <p>背景图（尚不是最终输出）。坐标按原图 {{ attempt.width }} × {{ attempt.height }} 像素填写。</p>
         <svg class="preview" :viewBox="`0 0 ${attempt.width} ${attempt.height}`" aria-label="背景与屏幕四角预览">
@@ -43,6 +45,8 @@
         <p>最终合成图（真实屏幕内容来自主素材 #{{ attempt.primaryAssetId }}）</p>
         <img class="preview" :src="attempt.finalUrl" alt="最终合成图" />
       </template>
+      <p v-if="attempt?.status === 'STALE' && attempt.finalUrl">历史合成结果（未附着为当前镜头）</p>
+      <img v-if="attempt?.status === 'STALE' && attempt.finalUrl" class="preview" :src="attempt.finalUrl" alt="未附着的历史合成图" />
     </div>
   </t-dialog>
 </template>
@@ -50,7 +54,7 @@
 import { computed, ref, watch, onUnmounted } from "vue";
 import axios from "@/utils/axios";
 const props = defineProps<{ projectId: number; scriptId: number; storyboardId: number; primaryAssetId: number; capabilityId?: string | null; semanticPrompt?: string | null; imagePrompt?: string | null }>();
-const emit = defineEmits<{ close: []; completed: [value: { id: number; src: string; state: string; reason: string }]; pending: [value: { id: number; src: null; state: string; reason: string }] }>();
+const emit = defineEmits<{ close: []; completed: [value: { id: number; src: string; state: string; reason: string }]; pending: [value: { id: number; src: null; state: string; reason: string }]; reconcile: [] }>();
 type Corner = "topLeft" | "topRight" | "bottomRight" | "bottomLeft";
 const corners: { key: Corner; label: string }[] = [{ key: "topLeft", label: "左上" }, { key: "topRight", label: "右上" }, { key: "bottomRight", label: "右下" }, { key: "bottomLeft", label: "左下" }];
 const emptyQuad = () => Object.fromEntries(corners.map(c => [c.key, { x: null as number | null, y: null as number | null }])) as Record<Corner, { x: number | null; y: number | null }>;
@@ -62,11 +66,19 @@ const busy = computed(() => pending.value || ["BACKGROUND_GENERATING", "BACKGROU
 const hasQuad = computed(() => corners.every(c => Number.isFinite(quad.value[c.key].x) && Number.isFinite(quad.value[c.key].y)));
 const points = computed(() => corners.map(c => `${quad.value[c.key].x},${quad.value[c.key].y}`).join(" "));
 let generation = 0, timer: ReturnType<typeof setTimeout> | undefined;
+const reconciledTerminal = new Set<string>();
 const scope = () => ({ projectId: props.projectId, scriptId: props.scriptId, storyboardId: props.storyboardId });
 function accept(value: any) {
   if (value?.id !== attempt.value?.id) { quad.value = emptyQuad(); confirmed.value = false; }
   attempt.value = value;
   if (value?.screenQuad) quad.value = value.screenQuad;
+  if (value?.productionAttemptId) {
+    if (["COMPLETED", "STALE", "FAILED"].includes(value.status)) {
+      const key = `${value.id}:${value.status}`;
+      if (!reconciledTerminal.has(key)) { reconciledTerminal.add(key); emit("reconcile"); }
+    }
+    return;
+  }
   if (value?.status === "COMPLETED") emit("completed", { id: props.storyboardId, src: value.finalUrl, state: "已完成", reason: "" });
   else if (value) emit("pending", { id: props.storyboardId, src: null, state: value.status === "FAILED" ? "生成失败" : value.status === "AWAITING_QUAD" ? "未生成" : "生成中", reason: value.error || "背景与真实素材尚未完成合成" });
 }
@@ -84,6 +96,7 @@ async function start() {
     const response = await axios.post("/production/storyboard/composite/start", { ...scope(), primaryAssetId: props.primaryAssetId, backgroundCapabilityId: props.capabilityId || "comfy.z-image-turbo.txt2img.v1", prompt: prompt.value, width: width.value, height: height.value, seed: seed.value });
     if (epoch !== generation) return;
     quad.value = emptyQuad(); confirmed.value = false; accept(response.data);
+    if (response.data?.productionAttemptId) emit("reconcile");
     timer = setTimeout(() => read(epoch), 1500);
   } catch (e: any) { if (epoch === generation) error.value = e?.response?.data?.message || e.message || "背景生成失败"; }
   finally { if (epoch === generation) pending.value = false; }
@@ -101,6 +114,7 @@ async function finish() {
 }
 watch(() => [props.projectId, props.scriptId, props.storyboardId], () => {
   generation++; clearTimeout(timer); attempt.value = null; quad.value = emptyQuad(); confirmed.value = false; pending.value = false; error.value = "";
+  reconciledTerminal.clear();
   prompt.value = props.imagePrompt?.trim() || safeBackgroundPrompt;
   void read(generation);
 }, { immediate: true });
