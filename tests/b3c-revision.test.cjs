@@ -96,6 +96,21 @@ test('cancel keeps the local draft; applying a separate manual edit does not dis
   assert.equal(revision.state.proposal.proposalId, 'p1');
 });
 
+test('late Preview from a replaced intent cannot authorize the new draft', async t => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const { revision } = await setup(t, url => url.endsWith('/preview') ? pending : {});
+  revision.open('MANUAL_EDIT', [{ type: 'EDIT', storyboardId: 7, patch: { prompt: 'first' } }]);
+  const firstId = revision.state.revisionId;
+  const first = revision.previewDraft();
+  revision.open('MANUAL_EDIT', [{ type: 'EDIT', storyboardId: 7, patch: { prompt: 'second' } }]);
+  release({ previewHash: 'old', baseRevisionEpoch: 0 });
+  await first;
+  assert.notEqual(revision.state.revisionId, firstId);
+  assert.equal(revision.state.status, 'DRAFT');
+  assert.equal(revision.state.preview, null);
+});
+
 test('semantic-first ADD omits index and uses complete REORDER; invalid Agent candidate refused', () => {
   const proposal = load(proposalFile);
   const item = { track: 'main', duration: 3, prompt: '', videoDesc: '', productionMode: 'AI_TEXT_TO_IMAGE',

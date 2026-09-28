@@ -35,14 +35,20 @@
 <script setup lang="ts">
 import { useStoryboardRevision } from "@/views/production/revision/coordinator";
 import { proposalOperations, semanticBaseline } from "@/views/production/revision/proposalPlan";
+import productionAgentStore from "@/stores/productionAgent";
 import type { Storyboard } from "@/views/production/utils/flowBuilder";
 const props = defineProps<{ storyboard: Storyboard[] }>();
 const revision = useStoryboardRevision();
 const show = (value: unknown) => JSON.stringify(value ?? [], null, 2);
-function openProposal() {
+async function openProposal() {
   const proposal = revision.state.proposal;
   if (!proposal) return;
   try {
+    const scope = revision.state.scope;
+    await productionAgentStore().getFlowData();
+    if (!scope || revision.state.scope?.projectId !== scope.projectId ||
+      revision.state.scope?.scriptId !== scope.scriptId || revision.state.scope?.generation !== scope.generation)
+      throw new Error("制作单元已切换，请重新打开提案");
     if (proposal.baseline !== undefined && proposal.baseline !== semanticBaseline(props.storyboard))
       throw new Error("提案接收后分镜已变化，请丢弃并重新生成提案，不能静默重建目标");
     const operations = proposalOperations(proposal.kind, proposal.candidate,

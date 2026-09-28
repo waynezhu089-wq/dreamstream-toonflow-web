@@ -58,7 +58,7 @@ function discard() { state.draft = null; state.dialogOpen = false; state.preview
 function close() { if (state.status !== "CONFIRMING") state.dialogOpen = false; }
 function open(origin: string, operations: RevisionOperation[]) {
   if (state.mode !== "CONTROLLED_V2" || !state.scope || !current(state.scope)) throw new Error("受控修订当前不可用");
-  if (state.status === "CONFIRMING") throw new Error("修订正在确认中");
+  if (state.status === "CONFIRMING" || state.status === "REFRESH_PENDING") throw new Error("修订正在确认或等待服务器刷新");
   if (state.draft && typeof window !== "undefined" && !window.confirm("已有未应用的修订草稿。确定丢弃旧草稿吗？")) throw new Error("已保留原修订草稿");
   state.draft = { origin, operations: copy(operations) }; state.dialogOpen = true; state.preview = null; state.confirmBody = null;
   state.revisionId = crypto.randomUUID(); state.humanReason = ""; state.error = ""; state.status = "DRAFT";
@@ -66,15 +66,15 @@ function open(origin: string, operations: RevisionOperation[]) {
 async function previewDraft(newSession = false) {
   if (!state.draft || !state.scope || !current(state.scope)) return;
   if (newSession) { state.revisionId = crypto.randomUUID(); state.preview = null; state.confirmBody = null; }
-  const scope = { ...state.scope }, operations = copy(state.draft.operations);
+  const scope = { ...state.scope }, operations = copy(state.draft.operations), revisionId = state.revisionId;
   state.status = "PREVIEWING"; state.error = "";
   try {
-    const result = await post("/stageOrchestrator/revision/preview", { schemaVersion: 1, revisionId: state.revisionId,
+    const result = await post("/stageOrchestrator/revision/preview", { schemaVersion: 1, revisionId,
       projectId: scope.projectId, scriptId: scope.scriptId, revisionKey: "storyboard.semantic.v2", changeSet: { operations } });
-    if (!current(scope)) return;
+    if (!current(scope) || state.revisionId !== revisionId) return;
     state.preview = result; state.status = "PREVIEWED";
   } catch (error: any) {
-    if (!current(scope)) return;
+    if (!current(scope) || state.revisionId !== revisionId) return;
     if (reason(error) === "REVISION_UNSUPPORTED") state.mode = "CONFIG_BLOCKED";
     state.status = reason(error) === "REVISION_PREVIEW_STALE" ? "STALE" : "ERROR";
     state.error = error?.message || "修订预览失败";
