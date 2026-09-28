@@ -43,7 +43,7 @@
       <assets :id="props.id" v-model="flowData.assets" :handleIds="props.data.handleIds" />
     </template>
     <template #node-storyboard="props">
-      <storyboard :id="props.id" v-model="flowData.storyboard" :assetsData="flowData.assets" :handleIds="props.data.handleIds" />
+      <storyboard :id="props.id" v-model="flowData.storyboard" :assetsData="flowData.assets" :image-production-ready="imageProductionReady" :handleIds="props.data.handleIds" />
     </template>
     <template #node-workbench="props">
       <workbench :id="props.id" v-model="flowData.workbench" :handleIds="props.data.handleIds" />
@@ -88,6 +88,10 @@
           </div>
         </t-tooltip> -->
       </div>
+      <RevisionPanel :storyboard="flowData.storyboard" />
+      <StageRecovery v-if="revision.state.mode === 'CONTROLLED_V2' && project?.id && episodesId"
+        ref="stageRecovery" :project-id="Number(project.id)" :script-id="Number(episodesId)"
+        :generation="unitGeneration" @ready="imageProductionReady = $event" />
       <div class="openRightChatBoxBtn c" v-show="!openShowVisible" @click.stop="openShowVisible = true">
         <i-menu-unfold-one theme="outline" size="24" />
       </div>
@@ -98,7 +102,7 @@
     <t-guide v-model="current" :steps="steps" @finish="() => (current = -1)" />
     <t-tag variant="outline" class="fps" v-if="!openShowVisible">{{ fps }}</t-tag>
   </VueFlow>
-  <SupervisorReviewInspector v-if="project?.id && episodesId" :visible="supervisorVisible" :project-id="Number(project.id)" :script-id="Number(episodesId)" @close="supervisorVisible = false" />
+  <SupervisorReviewInspector v-if="project?.id && episodesId" ref="supervisorInspector" :visible="supervisorVisible" :project-id="Number(project.id)" :script-id="Number(episodesId)" @close="supervisorVisible = false" />
 </template>
 
 <script setup lang="ts">
@@ -119,6 +123,9 @@ import workbench from "./node/workbench.vue";
 import poster from "./node/poster.vue";
 import rightChatBox from "./components/rightChatBox/index.vue";
 import SupervisorReviewInspector from "./components/SupervisorReviewInspector.vue";
+import RevisionPanel from "./components/RevisionPanel.vue";
+import StageRecovery from "./components/StageRecovery.vue";
+import { useStoryboardRevision } from "./revision/coordinator";
 import { useLayout } from "./utils/dagre";
 import { useFlowBuilder } from "./utils/flowBuilder";
 import axios from "@/utils/axios";
@@ -199,7 +206,27 @@ onMoveEnd(() => stopInteracting());
 const { layout } = useLayout("mainFlowBox");
 
 import productionAgentStore from "@/stores/productionAgent";
-const { episodesId, flowData, status } = storeToRefs(productionAgentStore());
+const agentStore = productionAgentStore();
+const { episodesId, flowData, status, unitGeneration } = storeToRefs(agentStore);
+const revision = useStoryboardRevision();
+const imageProductionReady = ref(false);
+const stageRecovery = ref<InstanceType<typeof StageRecovery> | null>(null);
+const supervisorInspector = ref<InstanceType<typeof SupervisorReviewInspector> | null>(null);
+onBeforeRouteLeave(() => {
+  if (!revision.maySwitch()) return false;
+  if (revision.state.status === "PREVIEWED") revision.discard();
+});
+revision.bind({ current: agentStore.captureUnit, isCurrent: agentStore.isCurrentUnit,
+  invalidate: agentStore.invalidateUnit,
+  refresh: async () => {
+    await agentStore.getFlowData();
+    await stageRecovery.value?.load();
+    await supervisorInspector.value?.load();
+  } });
+watch(() => [project.value?.id, episodesId.value, unitGeneration.value], () => {
+  const token = agentStore.captureUnit();
+  if (token) revision.setScope(token);
+}, { immediate: true, flush: "sync" });
 provide("episodesId", episodesId);
 
 const loading = ref(false);
@@ -251,7 +278,7 @@ async function waitForNodesReady(maxRetries = 60, delay = 100) {
 
 const advertisementRoute = useRoute();
 let advertisementViewActive = true;
-onBeforeUnmount(() => { advertisementViewActive = false; });
+onBeforeUnmount(() => { advertisementViewActive = false; agentStore.invalidateUnit(); });
 onMounted(async () => {
   if (isAdvertisement.value && project.value?.id) {
     try {
@@ -284,6 +311,10 @@ onMounted(async () => {
 
 const episodesOptions = ref<{ label: string; value: number }[]>([]);
 function confirmEpisodesSwitch() {
+  if (revision.state.mode === "CONTROLLED_V2" && (status.value === "pending" || status.value === "streaming")) {
+    window.$message.warning("请先结束当前 Agent 对话，再切换制作单元，避免旧会话写入新工作区");
+    return Promise.resolve(false);
+  }
   if (status.value !== "pending" && status.value !== "streaming") {
     return Promise.resolve(true);
   }
@@ -317,6 +348,8 @@ function handleEpisodesChange(value: unknown) {
   if (!Number.isFinite(nextEpisodesId) || nextEpisodesId === episodesId.value) return;
 
   void (async () => {
+    if (!revision.maySwitch()) return;
+    if (revision.state.status === "PREVIEWED") revision.discard();
     if (!(await confirmEpisodesSwitch())) return;
 
     if (isAdvertisement.value) {

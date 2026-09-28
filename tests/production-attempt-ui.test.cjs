@@ -29,18 +29,20 @@ test('batch start retains the old image and records the new active attempt', asy
   const js = ts.transpileModule(method, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const item = { id: 7, src: '/existing.jpg', state: '已完成', imageProvenance: { freshness: 'CURRENT', currentAttemptId: 'old', activeAttemptId: null, latestAttemptStatus: 'SUCCEEDED' } };
   const flowData = { value: { storyboard: [item] } };
-  const run = new Function('axios', 'episodesId', 'projectId', 'settingStore', 'flowData', `${js};return batchGenerateStoryboard;`)(
+  const run = new Function('axios', 'episodesId', 'projectId', 'settingStore', 'flowData', 'captureUnit', 'isCurrentUnit', `${js};return batchGenerateStoryboard;`)(
     { post: async () => ({ data: [{ id: 7, src: null, state: '生成中', attemptId: 'new' }] }) }, { value: 10 }, 1,
-    () => ({ otherSetting: { assetsBatchGenereateSize: 1 } }), flowData);
+    () => ({ otherSetting: { assetsBatchGenereateSize: 1 } }), flowData,
+    () => ({projectId:1,scriptId:10,generation:1}), () => true);
   await run([7], true);
   assert.equal(item.src, '/existing.jpg');
   assert.equal(item.imageProvenance.currentAttemptId, 'old');
   assert.equal(item.imageProvenance.activeAttemptId, 'new');
   const legacy = { id: 8, src: '/legacy.jpg', state: '已完成' };
   flowData.value.storyboard = [legacy];
-  const legacyRun = new Function('axios', 'episodesId', 'projectId', 'settingStore', 'flowData', `${js};return batchGenerateStoryboard;`)(
+  const legacyRun = new Function('axios', 'episodesId', 'projectId', 'settingStore', 'flowData', 'captureUnit', 'isCurrentUnit', `${js};return batchGenerateStoryboard;`)(
     { post: async () => ({ data: [{ id: 8, src: null, state: '生成中' }] }) }, { value: 10 }, 1,
-    () => ({ otherSetting: { assetsBatchGenereateSize: 1 } }), flowData);
+    () => ({ otherSetting: { assetsBatchGenereateSize: 1 } }), flowData,
+    () => ({projectId:1,scriptId:10,generation:1}), () => true);
   await legacyRun([8], true);
   assert.equal(legacy.src, null);
 });
@@ -69,8 +71,9 @@ test('terminal Storyboard polling reconciles controlled provenance once and leav
         ...item.imageProvenance, activeAttemptId: null, latestAttemptStatus, freshness,
       } }));
     };
-    const run = new Function('storyboardNotStateImageIds', 'storyboardPollingInFlight', 'axios', 'flowData', 'getFlowData', `${js};return pollStoryboardImages;`)(
-      { value: [7, 8] }, false, { post: async () => ({ data: local.map(({ id }) => ({ id, state })) }) }, flowData, getFlowData);
+    const run = new Function('storyboardNotStateImageIds', 'storyboardPollingInFlight', 'axios', 'flowData', 'getFlowData', 'captureUnit', 'isCurrentUnit', `${js};return pollStoryboardImages;`)(
+      { value: [7, 8] }, false, { post: async () => ({ data: local.map(({ id }) => ({ id, state })) }) }, flowData, getFlowData,
+      () => ({projectId:1,scriptId:10,generation:1}), () => true);
     await run();
     assert.equal(refreshes, 1, `${latestAttemptStatus} should refresh the terminal batch once`);
     for (const item of flowData.value.storyboard) {
@@ -83,9 +86,9 @@ test('terminal Storyboard polling reconciles controlled provenance once and leav
   const legacy = { id: 9, state: '生成中', src: '/legacy.jpg' };
   const flowData = { value: { storyboard: [legacy] } };
   let refreshes = 0;
-  const run = new Function('storyboardNotStateImageIds', 'storyboardPollingInFlight', 'axios', 'flowData', 'getFlowData', `${js};return pollStoryboardImages;`)(
+  const run = new Function('storyboardNotStateImageIds', 'storyboardPollingInFlight', 'axios', 'flowData', 'getFlowData', 'captureUnit', 'isCurrentUnit', `${js};return pollStoryboardImages;`)(
     { value: [9] }, false, { post: async () => ({ data: [{ id: 9, state: '已完成', src: '/legacy-new.jpg' }] }) }, flowData,
-    async () => { refreshes++; });
+    async () => { refreshes++; }, () => ({projectId:1,scriptId:10,generation:1}), () => true);
   await run();
   assert.equal(refreshes, 0);
   assert.equal(legacy.state, '已完成');

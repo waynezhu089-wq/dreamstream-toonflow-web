@@ -22,7 +22,7 @@
               </div>
 
               <div class="frameCard">
-                <t-button v-if="project?.projectType === 'general_video' && project?.type === 'advertisement' && item.productionMode === 'REAL_AI_COMPOSITE' && item.primaryAssetId" size="small" @click.stop="compositeShot = item">背景 + 真实素材合成</t-button>
+                <t-button v-if="project?.projectType === 'general_video' && project?.type === 'advertisement' && item.productionMode === 'REAL_AI_COMPOSITE' && item.primaryAssetId" size="small" :disabled="controlled && !props.imageProductionReady" @click.stop="compositeShot = item">背景 + 真实素材合成</t-button>
                 <t-button v-if="project?.projectType === 'general_video' && project?.type === 'advertisement' && item.id && item.productionMode !== 'REAL_ASSET_DIRECT'" size="small" variant="outline" @click.stop="skillShot = item">图片 Prompt Skill</t-button>
                 <div
                   class="frameImage"
@@ -105,7 +105,7 @@
       </div>
       <div class="ac" style="gap: 10px">
         <t-button block @click="previewAll" :disabled="!storyboard.length">{{ $t("workbench.production.node.storyboard.gridPreview") }}</t-button>
-        <t-button block @click="batchGenerateImage" :disabled="!storyboard.length || !selectedIds.length" :loading="generateLoading">
+        <t-button block @click="batchGenerateImage" :disabled="!storyboard.length || !selectedIds.length || controlled && !props.imageProductionReady" :loading="generateLoading">
           {{ $t("workbench.production.node.storyboard.generateImage") }}
         </t-button>
 
@@ -115,6 +115,25 @@
       </div>
     </div>
     <editImage v-model="visible" v-if="visible" :flowData="currentRow" type="storyboard" @save="save" />
+    <t-dialog :visible="addVisible" attach="body" header="新增分镜语义" :footer="false" @close="addVisible = false">
+      <div class="semantic-add" @wheel.stop @pointerdown.stop @mousedown.stop>
+        <label>分组 <input v-model="addForm.track" /></label>
+        <label>时长（秒） <input v-model.number="addForm.duration" type="number" min="0.1" step="0.1" /></label>
+        <label>画面描述 <textarea v-model="addForm.videoDesc" /></label>
+        <label>语义提示词 <textarea v-model="addForm.prompt" /></label>
+        <label>图片生产方式 <select v-model="addForm.productionMode">
+          <option value="">请选择</option><option value="REAL_ASSET_DIRECT">真实素材直用</option>
+          <option value="AI_TEXT_TO_IMAGE">AI 文生图</option>
+          <option value="AI_REFERENCE_GENERATE">参考图生成（当前未支持）</option>
+          <option value="REAL_AI_COMPOSITE">真实素材合成</option>
+        </select></label>
+        <label>主素材 <select v-model.number="addForm.primaryAssetId"><option :value="null">无</option><option v-for="asset in props.assetsData" :key="asset.id" :value="asset.id">{{ asset.name }} (#{{ asset.id }})</option></select></label>
+        <label>关联素材 ID（逗号分隔） <input v-model="addForm.linked" /></label>
+        <label>参考素材 ID（逗号分隔） <input v-model="addForm.references" /></label>
+        <p>Asset Group 引用当前尚未支持；新增镜头后须按工序重新审核，才能生成或附着图片。</p>
+        <button @click="submitSemanticAdd">预览新增及顺序影响</button><button @click="addVisible = false">取消</button>
+      </div>
+    </t-dialog>
     <CompositeAttempt v-if="compositeShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="compositeShot.id!" :primary-asset-id="compositeShot.primaryAssetId!" :capability-id="compositeShot.capabilityId" :semantic-prompt="compositeShot.prompt" :image-prompt="compositeShot.imagePrompt" @close="compositeShot = null" @completed="applyCompositeState" @pending="applyCompositeState" @reconcile="reconcileCompositeProvenance" />
     <ImagePromptSkill v-if="skillShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="skillShot.id!" :semantic-prompt="skillShot.prompt ?? ''" :image-prompt="skillShot.imagePrompt" :prompt-skill-id="skillShot.promptSkillId" :prompt-skill-version="skillShot.promptSkillVersion" @close="skillShot = null" @applied="applySkillPrompt" />
     <t-image-viewer
@@ -138,6 +157,7 @@ import axios from "@/utils/axios";
 import type { AssetItem, Storyboard } from "../utils/flowBuilder";
 import projectStore from "@/stores/project";
 import productionAgentStore from "@/stores/productionAgent";
+import { useStoryboardRevision } from "../revision/coordinator";
 const { project } = storeToRefs(projectStore());
 const { episodesId } = storeToRefs(productionAgentStore());
 
@@ -148,9 +168,39 @@ const props = defineProps<{
     source: string;
   };
   assetsData: AssetItem[];
+  imageProductionReady?: boolean;
 }>();
 
 const storyboard = defineModel<Storyboard[]>({ required: true });
+const revision = useStoryboardRevision();
+const controlled = computed(() => revision.state.mode === "CONTROLLED_V2");
+const semanticBlocked = computed(() => revision.state.mode !== "CONTROLLED_V2" && revision.state.mode !== "LEGACY");
+function requireSemanticRoute() { if (!semanticBlocked.value) return true; window.$message.error("当前分镜语义编辑不可用，请检查 Production Profile 与审核配置"); return false; }
+const addVisible = ref(false), addAfter = ref(-1);
+const addForm = reactive({ track: "", duration: 3, prompt: "", videoDesc: "", productionMode: "",
+  primaryAssetId: null as number | null, linked: "", references: "" });
+function parseIds(value: string) {
+  if (!value.trim()) return [];
+  const result = value.split(",").map(part => Number(part.trim()));
+  if (result.some(id => !Number.isSafeInteger(id) || id <= 0) || new Set(result).size !== result.length) throw new Error("素材 ID 必须是未重复的正整数");
+  return result;
+}
+function submitSemanticAdd() {
+  try {
+    if (!Number.isFinite(addForm.duration) || addForm.duration <= 0 || !addForm.productionMode) throw new Error("请选择生产方式并填写正数时长");
+    const linkedAssetIds = parseIds(addForm.linked), referenceAssetIds = parseIds(addForm.references);
+    if (addForm.primaryAssetId && !linkedAssetIds.includes(addForm.primaryAssetId)) throw new Error("请将主素材加入关联素材");
+    const clientRef = `shot${crypto.randomUUID().replace(/-/g, "")}`;
+    const order = storyboard.value.filter(item => !!item.id).map(item => ({ storyboardId: item.id! } as { storyboardId?: number; clientRef?: string }));
+    order.splice(addAfter.value + 1, 0, { clientRef });
+    revision.open("MANUAL_ADD", [{ type: "ADD", clientRef, storyboard: {
+      track: addForm.track, duration: addForm.duration, prompt: addForm.prompt, videoDesc: addForm.videoDesc,
+      productionMode: addForm.productionMode, primaryAssetId: addForm.primaryAssetId,
+      referenceAssetIds, referenceAssetGroupIds: [], linkedAssetIds,
+    } }, { type: "REORDER", order }]);
+    addVisible.value = false;
+  } catch (error: any) { window.$message.error(error?.message || "新增分镜无效"); }
+}
 const compositeShot = ref<Storyboard | null>(null);
 const skillShot = ref<Storyboard | null>(null);
 function applyCompositeState(result: { id: number; src: string | null; state: string; reason: string }) {
@@ -182,6 +232,7 @@ function selectAll() {
   selectedIds.value = storyboard.value.map((s) => s.id!).filter(Boolean);
 }
 function handleDeleteSelected() {
+  if (!requireSemanticRoute()) return;
   const dialog = DialogPlugin.confirm({
     header: $t("workbench.assets.confirmDeleteHeader"),
     body: $t("workbench.production.node.storyboard.confirmBatchDeleteBody", { index: selectedIds.value.length }),
@@ -193,6 +244,11 @@ function handleDeleteSelected() {
         if (!selectedIds.value.length) {
           dialog.destroy();
           return window.$message.error($t("workbench.production.node.storyboard.pleaseSelectImage"));
+        }
+        if (controlled.value) {
+          revision.open("MANUAL_RETIRE", selectedIds.value.map(storyboardId => ({ type: "RETIRE", storyboardId })));
+          dialog.destroy();
+          return;
         }
         await axios.post("/production/storyboard/batchDelete", {
           ids: selectedIds.value,
@@ -284,6 +340,7 @@ const styleMaxSize = computed(() => {
 });
 const generateLoading = ref(false);
 async function batchGenerateImage() {
+  if (controlled.value && !props.imageProductionReady) return window.$message.warning("请先完成当前审核并开始图片生产工序");
   if (!selectedIds.value.length) return window.$message.warning("请先选择分镜面板");
   generateLoading.value = true;
   try {
@@ -297,6 +354,15 @@ async function batchGenerateImage() {
   }
 }
 function editStoryboaryImage(item: Storyboard, images: string[], insertAfterIndex: number | null = null) {
+  if (insertAfterIndex !== null && !requireSemanticRoute()) return;
+  if (controlled.value && insertAfterIndex !== null) {
+    addAfter.value = insertAfterIndex;
+    addForm.track = String((item as any).track ?? ""); addForm.duration = 3; addForm.prompt = "";
+    addForm.videoDesc = ""; addForm.productionMode = ""; addForm.primaryAssetId = null;
+    addForm.linked = ""; addForm.references = ""; addVisible.value = true;
+    return;
+  }
+  if (controlled.value && !props.imageProductionReady) { window.$message.warning("请先完成当前审核并开始图片生产工序"); return; }
   currentRowStoryboardInfo.value = {
     id: insertAfterIndex == null ? item?.id! : null,
     insertAfterIndex,
@@ -352,6 +418,7 @@ async function save({ imageUrl, flowId }: { imageUrl: string; flowId: number }) 
 
   // 插入模式：在两张图之间新增一条分镜
   if (id === null && insertAfterIndex !== null) {
+    if (controlled.value) throw new Error("受控分镜须先完成语义修订");
     const newFrame: Storyboard = {
       duration: 0,
       prompt: "",
@@ -401,6 +468,7 @@ async function save({ imageUrl, flowId }: { imageUrl: string; flowId: number }) 
 }
 
 async function removeFn(id: number) {
+  if (!requireSemanticRoute()) return;
   const dialog = DialogPlugin.confirm({
     header: $t("workbench.assets.confirmDeleteHeader"),
     body: $t("workbench.production.node.storyboard.confirmDeleteBody"),
@@ -417,6 +485,11 @@ async function removeFn(id: number) {
         return;
       }
       try {
+        if (controlled.value) {
+          revision.open("MANUAL_RETIRE", [{ type: "RETIRE", storyboardId: id }]);
+          dialog.destroy();
+          return;
+        }
         await axios.post("/production/storyboard/removeFrame", {
           id,
           projectId: project.value?.id,
@@ -435,6 +508,7 @@ async function removeFn(id: number) {
 }
 
 function editInfo(item: Storyboard) {
+  if (!requireSemanticRoute()) return;
   const formData = reactive({
     prompt: item.prompt ?? "",
     videoDesc: item?.videoDesc ?? "",
@@ -474,6 +548,15 @@ function editInfo(item: Storyboard) {
     onConfirm: async () => {
       confirmDialog.update({ confirmBtn: { content: $t("common.submitting"), loading: true } });
       try {
+        if (controlled.value) {
+          const patch: Record<string, unknown> = {};
+          if (formData.prompt !== (item.prompt ?? "")) patch.prompt = formData.prompt;
+          if (formData.videoDesc !== (item.videoDesc ?? "")) patch.videoDesc = formData.videoDesc;
+          if (!Object.keys(patch).length) { confirmDialog.destroy(); return; }
+          revision.open("MANUAL_EDIT", [{ type: "EDIT", storyboardId: item.id!, patch }]);
+          confirmDialog.destroy();
+          return;
+        }
         await axios.post("/production/storyboard/editStoryboardInfo", {
           id: item.id,
           prompt: formData.prompt,
@@ -486,7 +569,7 @@ function editInfo(item: Storyboard) {
         window.$message.error((e as any)?.message || $t("common.editFailed"));
       } finally {
         confirmDialog.update({ confirmBtn: { content: $t("common.submit"), loading: false } });
-        confirmDialog.destroy();
+        if (!controlled.value) confirmDialog.destroy();
       }
     },
   });
@@ -732,4 +815,6 @@ function editInfo(item: Storyboard) {
   font-size: 13px;
   color: var(--td-text-color-secondary);
 }
+.semantic-add{max-height:calc(100vh - 170px);overflow-y:auto;overscroll-behavior:contain;color:var(--td-text-color-primary)}
+.semantic-add label{display:block;margin:9px 0}.semantic-add input,.semantic-add textarea,.semantic-add select{display:block;width:100%;padding:6px;color:var(--td-text-color-primary);background:var(--td-bg-color-container);border:1px solid var(--td-component-border)}
 </style>

@@ -19,15 +19,15 @@ function component(post) {
   return module.exports.default;
 }
 async function settle() { for (let i = 0; i < 12; i++) { await new Promise(resolve => setTimeout(resolve, 0)); await vue.nextTick(); } }
-const target = scriptId => ({ review: { displayName: 'Storyboard Semantic Approval' }, target: { targetHash: String(scriptId).padStart(64, '0'), targetAdapterKey: 'storyboard.semantic.v1', targetType: 'STORYBOARD_SEMANTIC', summary: '1 个分镜' }, profile: { profileKey: 'mv', profileVersion: 'v1' }, recipe: null, controlContextHash: 'a'.repeat(64) });
+const target = scriptId => ({ review: { displayName: 'Storyboard Semantic Approval' }, target: { targetHash: String(scriptId).padStart(64, '0'), targetAdapterKey: 'storyboard.semantic.v1', targetType: 'STORYBOARD_SEMANTIC', summary: '1 个分镜' }, profile: { profileKey: 'mv', profileVersion: 'v1' }, recipe: null, controlContextHash: 'a'.repeat(64), revisionEpoch: 0 });
 function setup(t, options = {}) {
   const calls = [];
   const post = async (url, body) => { calls.push({ url, body });
     if (url.endsWith('/current/resolve')) return { data: { mode: options.advisory ? 'LEGACY_ADVISORY' : 'GATE_DRIVING', gateDriving: !options.advisory, reviewKey: options.v2 ? 'storyboard.semantic-approval.v2' : 'storyboard.semantic-approval', gateKey: options.v2 ? 'supervisor.storyboard-approved.v2' : 'supervisor.storyboard-approved', targetAdapterKey: options.v2 ? 'storyboard.semantic.v2' : 'storyboard.semantic.v1', displayName: options.v2 ? 'Storyboard Semantic Approval V2' : 'Storyboard Semantic Approval' } };
     if (url.endsWith('/target/read')) return { data: options.v2 ? { ...target(body.scriptId), review: { displayName: 'Storyboard Semantic Approval V2' }, target: { ...target(body.scriptId).target, targetAdapterKey: 'storyboard.semantic.v2' } } : target(body.scriptId) };
-    if (url.endsWith('/review/history')) return { data: { history: [{ reviewId: 'old', decision: 'PASS', status: 'STALE', source: 'HUMAN', actorDisplayName: 'Reviewer', createdAt: Date.now(), summary: 'Old', targetHash: 'b'.repeat(64), profileKey: 'mv', profileVersion: 'v1', recipeKey: null, issues: [] }] } };
-    if (url.endsWith('/gate/check')) return { data: { pass: false, code: 'SUPERVISOR_REVIEW_REQUIRED', reason: 'Review needed', effectiveDecision: null, staleCount: 1 } };
-    if (url.endsWith('/ai/context')) { if (options.aiContextError) throw Error('AI policy unavailable'); return { data: { skillId: 'supervisor.test', skillVersion: 'v1', skillStatus: 'ACTIVE', resolvedFrom: { scopeType: 'STAGE', scopeKey: 'project:7:script:42:stage:supervisor-review' }, supervisorResolutionHash: 'c'.repeat(64), overrideChain: [], targetHash: target(body.scriptId).target.targetHash, controlContextHash: 'a'.repeat(64) } }; }
+    if (url.endsWith('/review/history')) return { data: { ...target(body.scriptId), history: [{ reviewId: 'old', decision: 'PASS', status: 'STALE', source: 'HUMAN', actorDisplayName: 'Reviewer', createdAt: Date.now(), summary: 'Old', targetHash: 'b'.repeat(64), profileKey: 'mv', profileVersion: 'v1', recipeKey: null, issues: [] }] } };
+    if (url.endsWith('/gate/check')) return { data: { pass: false, code: 'SUPERVISOR_REVIEW_REQUIRED', reason: 'Review needed', effectiveDecision: null, staleCount: 1, targetHash: target(body.scriptId).target.targetHash, controlContextHash: 'a'.repeat(64), revisionEpoch: 0 } };
+    if (url.endsWith('/ai/context')) { if (options.aiContextError) throw Error('AI policy unavailable'); return { data: { skillId: 'supervisor.test', skillVersion: 'v1', skillStatus: 'ACTIVE', resolvedFrom: { scopeType: 'STAGE', scopeKey: 'project:7:script:42:stage:supervisor-review' }, supervisorResolutionHash: 'c'.repeat(64), overrideChain: [], targetHash: target(body.scriptId).target.targetHash, controlContextHash: 'a'.repeat(64), revisionEpoch: 0 } }; }
     if (url.endsWith('/review/ai')) return options.aiResponse ? options.aiResponse() : { data: { decision: 'PASS' } };
     if (url.endsWith('/review/decide')) return { data: { reviewId: 'new' } };
     throw Error(url);
@@ -53,6 +53,7 @@ test('Production Inspector reads exact current unit, displays stale history and 
   const decision = f.calls.find(x => x.url.endsWith('/review/decide')).body;
   assert.equal(decision.expectedTargetHash, target(42).target.targetHash);
   assert.equal(decision.expectedControlContextHash, 'a'.repeat(64));
+  assert.equal(decision.expectedRevisionEpoch, 0);
   assert.equal(decision.decision, 'PASS'); assert.equal(decision.source, undefined); assert.equal(decision.actorUserId, undefined);
   f.props.scriptId = 43; await settle();
   assert.equal(f.calls.filter(x => x.url.endsWith('/target/read')).at(-1).body.scriptId, 43);
@@ -86,7 +87,7 @@ test('AI section shows exact Skill and sends only current scope and freshness ha
   assert.match(f.el.textContent, /策略版本/);
   f.button('AI 审查当前版本').click(); await settle();
   const request = f.calls.find(x => x.url.endsWith('/review/ai')).body;
-  assert.deepEqual(request, { projectId: 7, scriptId: 42, reviewKey: 'storyboard.semantic-approval', expectedTargetHash: target(42).target.targetHash, expectedControlContextHash: 'a'.repeat(64) });
+  assert.deepEqual(request, { projectId: 7, scriptId: 42, reviewKey: 'storyboard.semantic-approval', expectedTargetHash: target(42).target.targetHash, expectedControlContextHash: 'a'.repeat(64), expectedRevisionEpoch: 0 });
   assert.equal(request.skillId, undefined); assert.equal(request.modelReference, undefined);
   assert.ok(f.calls.filter(x => x.url.endsWith('/target/read')).length >= 2);
 });

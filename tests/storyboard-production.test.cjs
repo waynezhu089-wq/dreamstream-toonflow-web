@@ -9,14 +9,14 @@ function socketHandler(event,scope){const text=find(n=>ts.isCallExpression(n)&&n
 const spec={productionMode:'AI_REFERENCE_GENERATE',primaryAssetId:6,referenceAssetIds:[4,5],referenceAssetGroupIds:['views'],promptSkillId:'product',promptSkillVersion:'2',capabilityId:'future.reference'};
 test('actual Socket add preserves seven fields through the HTTP batch payload',async()=>{
  let sent;const flowData={value:{storyboard:[]}};
- const handler=socketHandler('addStoryboard',{storyboardProductionFields,flowData,addStoryboardInfo:async items=>{sent=items;},throttledFn:()=>{},$t:x=>x});
+ const handler=socketHandler('addStoryboard',{storyboardProductionFields,flowData,addStoryboardInfo:async items=>{sent=items;},throttledFn:()=>{},captureUnit:()=>null,useStoryboardRevision:()=>({state:{mode:'LEGACY'}}),$t:x=>x});
  await handler({...spec,prompt:'shot',duration:3,videoDesc:'screen',shouldGenerateImage:'false',associateAssetsIds:[6]},()=>{});
  assert.deepEqual(storyboardProductionFields(sent[0]),spec);assert.equal(sent[0].shouldGenerateImage,0);
  assert.equal(sent[0].primaryAssetId,6);assert.deepEqual(sent[0].referenceAssetIds,[4,5]);
 });
 test('actual replace forwards per-shot modes and server response without filtering metadata',async()=>{
  const flowData={value:{storyboard:[]}};let sent;
- const handler=socketHandler('replaceStoryboard',{axios:{post:async(url,body)=>{sent=body;return {data:body.data};}},episodesId:{value:10},projectId:1,flowData,setFlowData:async()=>{}});
+ const handler=socketHandler('replaceStoryboard',{axios:{post:async(url,body)=>{sent=body;return {data:body.data};}},episodesId:{value:10},projectId:1,flowData,setFlowData:async()=>{},useStoryboardRevision:()=>({state:{mode:'LEGACY'}})});
  await handler({items:[{...spec,id:10}]},()=>{});assert.deepEqual(sent,{projectId:1,scriptId:10,data:[{...spec,id:10}]});assert.deepEqual(flowData.value.storyboard[0],{...spec,id:10});
 });
 test('actual batch response updates production metadata; legacy fields remain absent and explicit null/empty survive',async()=>{

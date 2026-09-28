@@ -6,6 +6,8 @@ import { useChat } from "@/utils/useChat";
 import type { FlowData, Storyboard } from "@/views/production/utils/flowBuilder";
 import type { ChatMessagesData } from "@tdesign-vue-next/chat";
 import { useThrottleFn } from "@vueuse/core";
+import { useStoryboardRevision } from "@/views/production/revision/coordinator";
+import { semanticCandidate, semanticBaseline } from "@/views/production/revision/proposalPlan";
 
 function makeProductionAgentStore(projectId: string) {
   return defineStore(`productionAgent-${projectId}`, () => {
@@ -57,6 +59,19 @@ function makeProductionAgentStore(projectId: string) {
     });
 
     const episodesId = ref<number>();
+    const unitGeneration = ref(0);
+    type UnitToken = { projectId: number; scriptId: number; generation: number };
+    const captureUnit = (): UnitToken | null => episodesId.value && episodesId.value > 0
+      ? { projectId: Number(projectId), scriptId: episodesId.value, generation: unitGeneration.value } : null;
+    const isCurrentUnit = (token: UnitToken | null): token is UnitToken => !!token &&
+      token.projectId === Number(projectId) && token.scriptId === episodesId.value && token.generation === unitGeneration.value &&
+      Number(projectStore().project?.id) === token.projectId;
+    function invalidateUnit() {
+      unitGeneration.value++;
+      stopAssetsPolling();
+      stopStoryboardPolling();
+    }
+    watch(episodesId, (next, previous) => { if (next !== previous) invalidateUnit(); }, { flush: "sync" });
 
     const { connected, messages, chat, stopGenerate, socket, status, reconnect, connect, disconnect } = useChat({
       url: `${settingStore().baseUrl}/socket/productionAgent`,
@@ -127,15 +142,15 @@ function makeProductionAgentStore(projectId: string) {
         //   }
         // }
         if (status == "complete") {
-          throttledFn();
+          throttledFn(captureUnit());
         }
       },
     });
 
     // 实际的节流方法
     const throttledFn = useThrottleFn(
-      () => {
-        setFlowData(episodesId.value);
+      (scheduled: UnitToken | null) => {
+        if (isCurrentUnit(scheduled)) void setFlowData(scheduled.scriptId, scheduled).catch(() => {});
       },
       500,
       true,
@@ -212,6 +227,16 @@ function makeProductionAgentStore(projectId: string) {
             callback({ success: true, message: storyData });
           });
           s.on("addStoryboard", async (data, callback) => {
+            const revision = useStoryboardRevision();
+            if (revision.state.mode !== "LEGACY") {
+              try {
+                semanticCandidate(data);
+                callback(revision.receiveProposal({ proposalId: data.proposalId, projectId: Number(data.projectId),
+                  scriptId: Number(data.scriptId), kind: "ADD", candidate: data,
+                  baseline: semanticBaseline(flowData.value.storyboard) }));
+              } catch (error: any) { callback({ status: "INVALID_PROPOSAL", applied: false, error: error?.message }); }
+              return;
+            }
             const insertVal = {
               ...storyboardProductionFields(data),
               prompt: data.prompt || "",
@@ -228,10 +253,22 @@ function makeProductionAgentStore(projectId: string) {
             };
             flowData.value.storyboard.push(insertVal);
             await addStoryboardInfo([insertVal]);
-            throttledFn();
-            callback({ success: true, message: $t("storyboard.assets.derivativeAddSuccess") });
+            throttledFn(captureUnit());
+            callback({ success: true, applied: true, message: $t("storyboard.assets.derivativeAddSuccess") });
           });
           s.on("replaceStoryboard", async (payload: { items: any[] }, callback) => {
+            const revision = useStoryboardRevision();
+            if (revision.state.mode !== "LEGACY") {
+              try {
+                if (!Array.isArray(payload.items) || !payload.items.length) throw new Error("整套替换提案不能为空");
+                payload.items.forEach(semanticCandidate);
+                callback(revision.receiveProposal({ proposalId: (payload as any).proposalId,
+                  projectId: Number((payload as any).projectId), scriptId: Number((payload as any).scriptId),
+                  kind: "REPLACE", candidate: payload.items,
+                  baseline: semanticBaseline(flowData.value.storyboard) }));
+              } catch (error: any) { callback({ status: "INVALID_PROPOSAL", applied: false, error: error?.message }); }
+              return;
+            }
             try {
               const { data } = await axios.post("/production/storyboard/replaceStoryboard", {
                 scriptId: episodesId.value,
@@ -240,7 +277,7 @@ function makeProductionAgentStore(projectId: string) {
               });
               flowData.value.storyboard = data;
               await setFlowData(episodesId.value);
-              callback?.({ success: true, message: `已替换为 ${data.length} 条分镜`, data });
+              callback?.({ success: true, applied: true, message: `已替换为 ${data.length} 条分镜`, data });
             } catch (e: any) {
               callback?.({ success: false, error: e?.message || "整套替换分镜失败" });
             }
@@ -250,31 +287,41 @@ function makeProductionAgentStore(projectId: string) {
       { immediate: true },
     );
 
-    async function setFlowData(scriptId?: number) {
-      await axios.post("/production/saveFlowData", {
-        projectId: projectId,
-        data: flowData.value,
-        episodesId: scriptId || episodesId.value,
-      });
+    async function setFlowData(scriptId?: number, scheduled: UnitToken | null = captureUnit()) {
+      if (!isCurrentUnit(scheduled) || (scriptId && scriptId !== scheduled.scriptId)) return;
+      try {
+        await axios.post("/production/saveFlowData", {
+          projectId: scheduled.projectId,
+          data: JSON.parse(JSON.stringify(flowData.value)),
+          episodesId: scheduled.scriptId,
+        });
+      } catch (error: any) {
+        if (isCurrentUnit(scheduled)) window.$message.error(error?.message || "工作区保存失败，分镜语义修订须经人工确认");
+        throw error;
+      }
     }
 
     async function getFlowData() {
+      const token = captureUnit();
+      if (!token) return;
       const { data } = await axios.post("/production/getFlowData", {
-        projectId: projectId,
-        episodesId: episodesId.value,
+        projectId: token.projectId,
+        episodesId: token.scriptId,
       });
-      flowData.value = data;
+      if (isCurrentUnit(token)) flowData.value = data;
     }
     async function batchGenerateStoryboard(allIds: number[], compulsory: boolean = false) {
+      const token = captureUnit();
+      if (!token) return;
       try {
         const { data } = await axios.post("/production/storyboard/batchGenerateImage", {
-          scriptId: episodesId.value,
-          projectId: projectId,
+          scriptId: token.scriptId,
+          projectId: token.projectId,
           storyboardIds: allIds,
           concurrentCount: settingStore().otherSetting.assetsBatchGenereateSize,
           compulsory,
         });
-        if (data) {
+        if (data && isCurrentUnit(token)) {
           if (flowData.value.storyboard.length === 0) {
             flowData.value.storyboard = data;
             return data;
@@ -298,6 +345,8 @@ function makeProductionAgentStore(projectId: string) {
       }
     }
     async function batchGenerateAssets(allIds: number[]) {
+      const token = captureUnit();
+      if (!token) return;
       flowData.value.assets.forEach((asset) => {
         if (asset.derive) {
           asset.derive.forEach((derive) => {
@@ -310,11 +359,11 @@ function makeProductionAgentStore(projectId: string) {
       try {
         const { data } = await axios.post("/production/assets/batchGenerateAssetsImage", {
           assetIds: allIds,
-          projectId: projectId,
-          scriptId: episodesId.value,
+          projectId: token.projectId,
+          scriptId: token.scriptId,
           concurrentCount: settingStore().otherSetting.assetsBatchGenereateSize,
         });
-        if (data) {
+        if (data && isCurrentUnit(token)) {
           data.forEach((record: { id: number; state: "未生成" | "生成中" | "已完成" | "生成失败"; src: string }) => {
             flowData.value.assets.forEach((asset) => {
               if (asset.derive) {
@@ -358,6 +407,8 @@ function makeProductionAgentStore(projectId: string) {
     let assetsPollingInFlight = false;
 
     async function pollAssetsImages() {
+      const token = captureUnit();
+      if (!token) return;
       const ids = assetsNotStateImageIds.value;
       if (ids.length === 0 || assetsPollingInFlight) return;
       assetsPollingInFlight = true;
@@ -365,7 +416,7 @@ function makeProductionAgentStore(projectId: string) {
         const { data } = await axios.post("/production/assets/pollingImage", {
           ids: ids,
         });
-        if (!data || data.length === 0) return;
+        if (!isCurrentUnit(token) || !data || data.length === 0) return;
         const records = data as Array<{ id: number; state: string; src?: string; errorReason?: string; prompt?: string }>;
         records.forEach((record) => {
           flowData.value.assets.forEach((asset) => {
@@ -423,6 +474,8 @@ function makeProductionAgentStore(projectId: string) {
     let storyboardPollingInFlight = false;
 
     async function pollStoryboardImages() {
+      const token = captureUnit();
+      if (!token) return;
       const ids = storyboardNotStateImageIds.value;
       if (ids.length === 0 || storyboardPollingInFlight) return;
       storyboardPollingInFlight = true;
@@ -430,7 +483,7 @@ function makeProductionAgentStore(projectId: string) {
         const { data } = await axios.post("/production/storyboard/pollingImage", {
           ids: ids,
         });
-        if (!data || data.length === 0) return;
+        if (!isCurrentUnit(token) || !data || data.length === 0) return;
         const records = data as Array<{ id: number; state: string; src?: string; reason?: string }>;
         // Polling omits Attempt provenance. Refresh once for this terminal batch
         // while the local shot still records the active controlled attempt.
@@ -515,15 +568,16 @@ function makeProductionAgentStore(projectId: string) {
 
     const loadingHistory = ref(false);
     async function getHistory() {
+      const token = captureUnit();
+      if (!token) return;
       loadingHistory.value = true;
       const { data } = await axios.post(`/agents/getMemory`, {
-        projectId: projectId,
-        episodesId: episodesId.value,
+        projectId: token.projectId,
+        episodesId: token.scriptId,
         agentType: "productionAgent",
       });
-      messages.value = [];
-      messages.value = [...defMsg.value, ...data];
-      loadingHistory.value = false;
+      if (isCurrentUnit(token)) messages.value = [...defMsg.value, ...data];
+      if (isCurrentUnit(token)) loadingHistory.value = false;
     }
 
     const thinkLevel = ref(0);
@@ -546,6 +600,10 @@ function makeProductionAgentStore(projectId: string) {
       setFlowData,
       getFlowData,
       episodesId,
+      unitGeneration,
+      captureUnit,
+      isCurrentUnit,
+      invalidateUnit,
       stopAssetsPolling,
       stopStoryboardPolling,
       updateContext,

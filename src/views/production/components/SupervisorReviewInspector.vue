@@ -1,7 +1,7 @@
 <template>
   <t-dialog :visible="visible" header="Advanced · Supervisor Review" width="860px" :footer="false" attach="body" placement="center" dialog-class-name="supervisor-review-dialog" @close="$emit('close')">
     <section class="supervisor-inspector" @wheel.stop @mousedown.stop @pointerdown.stop>
-      <p>当前制作单元：{{ projectId }} / {{ scriptId }} <button :disabled="busy" @click="load">刷新当前内容</button></p>
+      <p>当前制作单元：{{ projectId }} / {{ scriptId }} <button :disabled="busy" @click="load()">刷新当前内容</button></p>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <p v-if="loading">正在读取当前分镜与审核记录…</p>
       <template v-if="target && gate">
@@ -15,7 +15,7 @@
         <p v-if="gate.code === 'SUPERVISOR_HUMAN_CONFIRM_REQUIRED'" class="warning">AI 认为需要人工确认；请人工检查后选择 PASS 或 REVISE。</p>
         <p v-if="gate.staleCount" class="warning">已有 {{ gate.staleCount }} 条过期审核记录，不能用于当前 Gate。</p>
         <div class="actions">
-          <button :disabled="busy || loading" @click="pass">人工确认 PASS</button>
+          <button :disabled="busy || loading || !evidenceReady" @click="pass">人工确认 PASS</button>
           <button :disabled="busy || loading" @click="showRevise = !showRevise">填写 REVISE</button>
         </div>
         <section class="ai-section">
@@ -27,7 +27,7 @@
             <p>Skill：{{ aiContext.skillId }} @ {{ aiContext.skillVersion }} ({{ aiContext.skillStatus }})；来源：{{ aiContext.resolvedFrom.scopeType }} {{ aiContext.resolvedFrom.scopeKey }}</p>
             <p>策略版本：<code :title="aiContext.supervisorResolutionHash">{{ aiContext.supervisorResolutionHash.slice(0, 12) }}</code></p>
             <p v-if="aiContext.overrideChain.length">Override：{{ aiContext.overrideChain.map((item: any) => `${item.scopeType} ${item.scopeKey}`).join(' → ') }}</p>
-            <button :disabled="busy || loading || aiLoading || aiBusy || aiContext.targetHash !== target.target.targetHash || aiContext.controlContextHash !== target.controlContextHash" @click="runAi">AI 审查当前版本</button>
+            <button :disabled="busy || loading || aiLoading || aiBusy || !evidenceReady || !aiEvidenceReady" @click="runAi">AI 审查当前版本</button>
             <span v-if="aiBusy">正在审核，请稍候…</span>
           </template>
         </section>
@@ -43,7 +43,7 @@
             <button @click="issues.splice(index, 1)">移除此项</button>
           </article>
           <button :disabled="issues.length >= 100" @click="addIssue">添加问题</button>
-          <button :disabled="busy || !summary.trim() || !issues.some(issue => issue.severity === 'BLOCKER') || issues.some(issue => !issue.code.trim() || !issue.message.trim())" @click="revise">提交 REVISE</button>
+          <button :disabled="busy || !evidenceReady || !summary.trim() || !issues.some(issue => issue.severity === 'BLOCKER') || issues.some(issue => !issue.code.trim() || !issue.message.trim())" @click="revise">提交 REVISE</button>
         </div>
         <h4>审核历史</h4>
         <p v-if="!history.length">暂无审核记录。</p>
@@ -60,7 +60,7 @@
   </t-dialog>
 </template>
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import axios from '@/utils/axios';
 const props = defineProps<{ visible: boolean; projectId: number; scriptId: number }>();
 defineEmits<{ close: [] }>();
@@ -70,22 +70,38 @@ const target = ref<any>(null), gate = ref<any>(null), history = ref<any[]>([]);
 const aiContext = ref<any>(null), aiError = ref(''), aiLoading = ref(false), aiBusy = ref(false);
 const loading = ref(false), busy = ref(false), error = ref(''), showRevise = ref(false), summary = ref('');
 const issues = ref<Issue[]>([]);
+const evidenceReady = computed(() => !!target.value && !!gate.value && !!historyEvidence.value &&
+  target.value.target.targetHash === gate.value.targetHash && target.value.target.targetHash === historyEvidence.value.target?.targetHash &&
+  target.value.controlContextHash === gate.value.controlContextHash && target.value.controlContextHash === historyEvidence.value.controlContextHash &&
+  target.value.revisionEpoch === gate.value.revisionEpoch && target.value.revisionEpoch === historyEvidence.value.revisionEpoch);
+const aiEvidenceReady = computed(() => !!aiContext.value && !!target.value &&
+  aiContext.value.targetHash === target.value.target.targetHash &&
+  aiContext.value.controlContextHash === target.value.controlContextHash &&
+  aiContext.value.revisionEpoch === target.value.revisionEpoch);
+const historyEvidence = ref<any>(null);
 let epoch = 0;
 const scope = () => ({ projectId: props.projectId, scriptId: props.scriptId, reviewKey: currentReview.value?.reviewKey });
 const post = async (path: string, body: unknown) => (await axios.post(`/supervisor/${path}`, body)).data;
 function fail(value: any) { error.value = value?.message || value?.response?.data?.message || 'Supervisor 操作失败'; }
 function failAi(value: any) { aiError.value = value?.response?.data?.message || value?.message || 'AI 审查暂时不可用'; }
 function addIssue() { issues.value.push({ severity: 'BLOCKER', code: 'STORYBOARD_REVISION', message: '', suggestion: null, evidence: null }); }
-async function load() {
+async function load(retryMismatch = true) {
   const current = ++epoch;
   if (!props.visible || !props.projectId || !props.scriptId) return;
-  loading.value = true; error.value = ''; aiError.value = ''; currentReview.value = null; target.value = null; gate.value = null; history.value = []; aiContext.value = null;
+  loading.value = true; error.value = ''; aiError.value = ''; currentReview.value = null; target.value = null; gate.value = null; history.value = []; historyEvidence.value = null; aiContext.value = null;
   try {
     const resolved = await post('current/resolve', { projectId: props.projectId, scriptId: props.scriptId });
     if (current !== epoch) return;
     currentReview.value = resolved;
     const [nextTarget, nextHistory, nextGate] = await Promise.all([post('target/read', scope()), post('review/history', scope()), post('gate/check', scope())]);
-    if (current === epoch) { target.value = nextTarget; history.value = nextHistory.history; gate.value = nextGate; void loadAi(current); }
+    if (current === epoch) {
+      target.value = nextTarget; historyEvidence.value = nextHistory; history.value = nextHistory.history; gate.value = nextGate;
+      if (!evidenceReady.value) {
+        error.value = '审核依据已变化，正在重新读取当前内容。';
+        if (retryMismatch) { void load(false); return; }
+      }
+      if (evidenceReady.value) void loadAi(current);
+    }
   } catch (value) { if (current === epoch) fail(value); }
   finally { if (current === epoch) loading.value = false; }
 }
@@ -96,30 +112,32 @@ async function loadAi(current: number) {
   finally { if (current === epoch) aiLoading.value = false; }
 }
 async function runAi() {
-  if (!target.value || !aiContext.value || aiBusy.value) return;
+  if (!evidenceReady.value || !aiEvidenceReady.value || aiBusy.value) return;
   const current = epoch;
   aiBusy.value = true; aiError.value = '';
   try {
-    await post('review/ai', { ...scope(), expectedTargetHash: target.value.target.targetHash, expectedControlContextHash: target.value.controlContextHash });
+    await post('review/ai', { ...scope(), expectedTargetHash: target.value.target.targetHash, expectedControlContextHash: target.value.controlContextHash, expectedRevisionEpoch: target.value.revisionEpoch });
     if (current === epoch) await load();
-  } catch (value) { if (current === epoch) failAi(value); }
-  finally { aiBusy.value = false; }
+  } catch (value: any) { if (current === epoch) { failAi(value); if (['SUPERVISOR_REVISION_CHANGED', 'SUPERVISOR_TARGET_CHANGED', 'SUPERVISOR_CONTEXT_CHANGED'].includes(value?.data?.reason)) void load(); } }
+  finally { if (current === epoch) aiBusy.value = false; }
 }
 async function submit(decision: 'PASS' | 'REVISE', text: string, submittedIssues: Issue[]) {
-  if (!target.value || !gate.value) return;
+  if (!evidenceReady.value) return;
+  const current = epoch;
   busy.value = true; error.value = '';
   try {
-    await post('review/decide', { ...scope(), expectedTargetHash: target.value.target.targetHash, expectedControlContextHash: target.value.controlContextHash, decision, summary: text, issues: submittedIssues });
-    showRevise.value = false; summary.value = ''; issues.value = []; await load();
-  } catch (value) { fail(value); }
-  finally { busy.value = false; }
+    await post('review/decide', { ...scope(), expectedTargetHash: target.value.target.targetHash, expectedControlContextHash: target.value.controlContextHash, expectedRevisionEpoch: target.value.revisionEpoch, decision, summary: text, issues: submittedIssues });
+    if (current === epoch) { showRevise.value = false; summary.value = ''; issues.value = []; await load(); }
+  } catch (value: any) { if (current === epoch) { fail(value); if (['SUPERVISOR_REVISION_CHANGED', 'SUPERVISOR_TARGET_CHANGED', 'SUPERVISOR_CONTEXT_CHANGED'].includes(value?.data?.reason)) void load(); } }
+  finally { if (current === epoch) busy.value = false; }
 }
 function pass() {
   if (!window.confirm('确认当前分镜内容和精确 Profile/Recipe 上下文均已人工审核，可以通过吗？')) return;
   void submit('PASS', '人工确认当前 Storyboard 语义与生产规划通过。', []);
 }
 function revise() { void submit('REVISE', summary.value.trim(), issues.value); }
-watch(() => [props.visible, props.projectId, props.scriptId], () => { ++epoch; currentReview.value = null; target.value = null; gate.value = null; history.value = []; aiContext.value = null; aiError.value = ''; if (props.visible) void load(); }, { immediate: true });
+watch(() => [props.visible, props.projectId, props.scriptId], () => { ++epoch; busy.value = false; aiBusy.value = false; currentReview.value = null; target.value = null; gate.value = null; history.value = []; historyEvidence.value = null; aiContext.value = null; aiError.value = ''; if (props.visible) void load(); }, { immediate: true });
+defineExpose({ load });
 </script>
 <style scoped>
 .supervisor-inspector{max-height:calc(100vh - 160px);overflow-y:auto;overscroll-behavior:contain;padding:4px 12px 16px;color:var(--td-text-color-primary)}
