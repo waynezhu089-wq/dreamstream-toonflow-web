@@ -1,5 +1,6 @@
 <template>
-  <section class="recovery" v-if="state?.profile && state.profile.definition?.schemaVersion !== 1">
+  <section class="recovery stage-recovery-overlay" v-if="state?.profile && state.profile.definition?.schemaVersion !== 1"
+    @pointerdown.stop @mousedown.stop @wheel.stop @click.stop>
     <strong>生产工序恢复</strong> <button :disabled="busy" @click="load">刷新</button>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <article v-for="stage in state.stages || []" :key="stage.stageKey">
@@ -44,6 +45,6 @@ watch(() => [props.projectId, props.scriptId, props.generation], () => { ++reque
 defineExpose({ load });
 </script>
 <style scoped>
-.recovery{max-height:300px;overflow-y:auto;padding:8px;color:var(--td-text-color-primary);background:var(--td-bg-color-container);border:1px solid var(--td-component-border)}
+.recovery{position:absolute;top:88px;left:12px;z-index:100;pointer-events:auto;box-sizing:border-box;width:max-content;max-width:min(460px,calc(100% - 24px));max-height:min(360px,calc(100% - 104px));overflow-y:auto;overscroll-behavior:contain;padding:8px;color:var(--td-text-color-primary);background:var(--td-bg-color-container);border:1px solid var(--td-component-border);box-shadow:var(--td-shadow-2)}
 .recovery article{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:5px 0}.error{color:var(--td-error-color)}button{color:var(--td-text-color-primary);background:var(--td-bg-color-secondarycontainer);border:1px solid var(--td-component-border);cursor:pointer}
 </style>

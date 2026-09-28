@@ -1,4 +1,5 @@
 <template>
+  <div class="production-shell">
   <VueFlow
     class="flowMain"
     :class="{ 'is-interacting': isInteracting && otherSetting.interacting, 'space-dragging': isSpacePressed }"
@@ -89,9 +90,6 @@
         </t-tooltip> -->
       </div>
       <RevisionPanel :storyboard="flowData.storyboard" />
-      <StageRecovery v-if="revision.state.mode === 'CONTROLLED_V2' && project?.id && episodesId"
-        ref="stageRecovery" :project-id="Number(project.id)" :script-id="Number(episodesId)"
-        :generation="unitGeneration" @ready="imageProductionReady = $event" />
       <div class="openRightChatBoxBtn c" v-show="!openShowVisible" @click.stop="openShowVisible = true">
         <i-menu-unfold-one theme="outline" size="24" />
       </div>
@@ -102,6 +100,10 @@
     <t-guide v-model="current" :steps="steps" @finish="() => (current = -1)" />
     <t-tag variant="outline" class="fps" v-if="!openShowVisible">{{ fps }}</t-tag>
   </VueFlow>
+  <StageRecovery v-if="revision.state.mode === 'CONTROLLED_V2' && project?.id && episodesId"
+    ref="stageRecovery" :project-id="Number(project.id)" :script-id="Number(episodesId)"
+    :generation="unitGeneration" @ready="imageProductionReady = $event" />
+  </div>
   <SupervisorReviewInspector v-if="project?.id && episodesId" ref="supervisorInspector" :visible="supervisorVisible" :project-id="Number(project.id)" :script-id="Number(episodesId)" @close="supervisorVisible = false" />
 </template>
 
@@ -595,6 +597,11 @@ watch(openShowVisible, (val) => {
 });
 </script>
 <style lang="scss" scoped>
+.production-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
 .flowMain {
   height: 100%;
   &.space-dragging {
