@@ -1,5 +1,6 @@
 <template>
-  <div class="revision-entry" v-if="revision.state.mode === 'CONTROLLED_V2'">
+  <div class="revision-entry" v-if="revision.state.mode === 'CONTROLLED_V2'"
+    @pointerdown.stop @mousedown.stop @wheel.stop @click.stop>
     <button v-if="revision.state.proposal" @click="openProposal">Agent 分镜提案待人工确认</button>
     <span v-if="revision.state.proposal" class="hint">仅保留在当前浏览器会话；尚未应用，刷新可能丢失。</span>
     <button v-if="revision.state.proposal" @click="revision.discardProposal()">丢弃提案</button>
@@ -7,7 +8,8 @@
     <span v-if="revision.state.status === 'APPLIED'">修订已应用，已从服务器刷新。代次：{{ revision.state.applied?.epochAfter ?? revision.state.applied?.revisionEpoch ?? '请查看工序状态' }}；新增镜头映射：{{ show(revision.state.applied?.clientRefToId) }}</span>
     <button v-if="revision.state.status === 'REFRESH_PENDING'" @click="revision.refreshApplied()">修订已应用，重试刷新</button>
   </div>
-  <p v-else-if="revision.state.mode === 'CONFIG_BLOCKED'" class="revision-error">Semantic V2 审核配置不可用：{{ revision.state.error }}</p>
+  <p v-else-if="revision.state.mode === 'CONFIG_BLOCKED'" class="revision-error revision-entry"
+    @pointerdown.stop @mousedown.stop @wheel.stop @click.stop>Semantic V2 审核配置不可用：{{ revision.state.error }}</p>
   <t-dialog :visible="revision.state.dialogOpen" attach="body" width="900px" header="分镜语义修订预览" :footer="false" @close="revision.close()">
     <div class="revision-dialog" @wheel.stop @pointerdown.stop @mousedown.stop>
       <p>制作单元：{{ revision.state.scope?.projectId }} / {{ revision.state.scope?.scriptId }}；来源：{{ revision.state.draft?.origin }}</p>
@@ -58,7 +60,7 @@ async function openProposal() {
 }
 </script>
 <style scoped>
-.revision-entry{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;background:var(--td-bg-color-container);color:var(--td-text-color-primary)}
+.revision-entry{position:absolute;top:72px;left:12px;z-index:110;pointer-events:auto;box-sizing:border-box;display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:max-content;max-width:min(560px,calc(100% - 24px));max-height:72px;overflow-y:auto;overscroll-behavior:contain;padding:8px;background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);box-shadow:var(--td-shadow-2)}
 .revision-dialog{max-height:calc(100vh - 170px);overflow-y:auto;overscroll-behavior:contain;color:var(--td-text-color-primary)}
 .revision-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--td-bg-color-secondarycontainer);padding:10px;border:1px solid var(--td-component-border)}
 .revision-dialog textarea{display:block;width:100%;min-height:80px;color:var(--td-text-color-primary);background:var(--td-bg-color-container)}
