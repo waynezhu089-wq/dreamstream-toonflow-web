@@ -44,7 +44,7 @@ test('generate from old unit ACKs mismatch immediately and never enters image pr
   assert.equal(calls, 0);
 });
 
-test('generate production failure ACKs explicitly, and late A result cannot become B success', async () => {
+test('generate production failure ACKs explicitly, and late A success is acknowledged without touching B', async () => {
   const f = unit(); let release, calls = 0;
   const pending = new Promise(resolve => { release = resolve; });
   const run = handler('generateStoryboard', { socketUnit: f.socketUnit, isCurrentUnit: f.isCurrentUnit,
@@ -52,7 +52,10 @@ test('generate production failure ACKs explicitly, and late A result cannot beco
   const firstAck = reply(); const first = run({ ...payload, ids: [7] }, firstAck.callback);
   f.switchScript(); release([{ id: 7 }]); await first;
   assert.equal(calls, 1);
-  assert.deepEqual(firstAck.value, { status: 'CONTEXT_MISMATCH', applied: false });
+  assert.equal(firstAck.value.success, true);
+  assert.equal(firstAck.value.accepted, true);
+  assert.equal(firstAck.value.applied, true);
+  assert.equal(firstAck.value.scopeChanged, true);
   const second = unit(), failed = handler('generateStoryboard', { socketUnit: second.socketUnit, isCurrentUnit: second.isCurrentUnit,
     batchGenerateStoryboard: async () => { throw Error('provider rejected'); } });
   const failureAck = reply(); await failed({ ...payload, ids: [7] }, failureAck.callback);
@@ -70,9 +73,22 @@ test('Legacy ADD dispatched in A uses A scope but never pushes its late result i
   assert.equal(flowData.value.storyboard.length, 0);
   assert.deepEqual(sent.token, { projectId: 1, scriptId: 10, generation: 1 });
   f.switchScript(); flowData.value = { storyboard: [{ id: 99, prompt: 'B' }] };
-  release([{ id: 7, prompt: 'A' }]); await operation;
+  release({ dispatched: true, data: [{ id: 7, prompt: 'A' }], current: false }); await operation;
   assert.deepEqual(flowData.value.storyboard, [{ id: 99, prompt: 'B' }]);
-  assert.deepEqual(ack.value, { status: 'CONTEXT_MISMATCH', applied: false });
+  assert.equal(ack.value.success, true);
+  assert.equal(ack.value.applied, true);
+  assert.equal(ack.value.scopeChanged, true);
+});
+
+test('Legacy ADD preserves a successful HTTP result after scope changes', async () => {
+  const f = unit(); let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const addStoryboardInfo = method('addStoryboardInfo', {
+    axios: { post: async () => pending }, isCurrentUnit: f.isCurrentUnit,
+  });
+  const result = addStoryboardInfo([{ prompt: 'A' }], { projectId: 1, scriptId: 10, generation: 1 });
+  f.switchScript(); release({ data: [{ id: 7, prompt: 'A' }] });
+  assert.deepEqual(await result, { dispatched: true, data: [{ id: 7, prompt: 'A' }], current: false });
 });
 
 test('Legacy REPLACE dispatched in A uses A scope but never installs its late result in B', async () => {
@@ -87,7 +103,9 @@ test('Legacy REPLACE dispatched in A uses A scope but never installs its late re
   release({ data: [{ id: 7, prompt: 'A' }] }); await operation;
   assert.deepEqual(flowData.value.storyboard, [{ id: 99, prompt: 'B' }]);
   assert.equal(saves, 0);
-  assert.deepEqual(ack.value, { status: 'CONTEXT_MISMATCH', applied: false });
+  assert.equal(ack.value.success, true);
+  assert.equal(ack.value.applied, true);
+  assert.equal(ack.value.scopeChanged, true);
 });
 
 test('old-project ADD and REPLACE events reject before any Legacy write', async () => {
@@ -100,4 +118,14 @@ test('old-project ADD and REPLACE events reject before any Legacy write', async 
     assert.deepEqual(ack.value, { status: 'CONTEXT_MISMATCH', applied: false });
   }
   assert.equal(writes, 0);
+});
+
+test('after dispatch a failed A request stays a failure, not a context mismatch', async () => {
+  const f = unit(), flowData = { value: { storyboard: [] } }; let reject;
+  const pending = new Promise((_resolve, fail) => { reject = fail; });
+  const run = handler('replaceStoryboard', { socketUnit: f.socketUnit, isCurrentUnit: f.isCurrentUnit,
+    useStoryboardRevision: legacy, flowData, axios: { post: async () => pending }, setFlowData: async () => {} });
+  const ack = reply(); const operation = run({ ...payload, items: [{ prompt: 'A' }] }, ack.callback);
+  f.switchScript(); reject(Error('server rejected')); await operation;
+  assert.deepEqual(ack.value, { success: false, applied: false, error: 'server rejected' });
 });

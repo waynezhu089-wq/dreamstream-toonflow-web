@@ -232,10 +232,10 @@ function makeProductionAgentStore(projectId: string) {
             if (!token) return callback({ status: "CONTEXT_MISMATCH", applied: false });
             try {
               const storyData = await batchGenerateStoryboard(data.ids);
-              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
-              callback({ success: true, applied: true, message: storyData });
+              const scopeChanged = !isCurrentUnit(token);
+              callback({ success: true, applied: true, accepted: true, scopeChanged,
+                message: scopeChanged ? "原制作单元的分镜生产请求已接收；当前界面已切换，未更新当前工作区" : storyData });
             } catch (error: any) {
-              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
               callback({ success: false, applied: false, error: error?.message || "分镜生产请求失败" });
             }
           });
@@ -267,14 +267,15 @@ function makeProductionAgentStore(projectId: string) {
               associateAssetsIds: data.associateAssetsIds || [],
             };
             try {
-              const rows = await addStoryboardInfo([insertVal], token);
-              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
-              if (!Array.isArray(rows) || !rows.length) throw new Error("新增分镜未返回有效记录");
-              flowData.value.storyboard.push({ ...insertVal, ...rows[0] });
+              const result = await addStoryboardInfo([insertVal], token);
+              if (!result.dispatched) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+              if (!isCurrentUnit(token)) return callback({ success: true, applied: true, scopeChanged: true,
+                message: "已应用到原制作单元；当前界面已切换，未更新当前工作区" });
+              if (!Array.isArray(result.data) || !result.data.length) throw new Error("新增分镜未返回有效记录");
+              flowData.value.storyboard.push({ ...insertVal, ...result.data[0] });
               throttledFn(token);
               callback({ success: true, applied: true, message: $t("storyboard.assets.derivativeAddSuccess") });
             } catch (error: any) {
-              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
               callback({ success: false, applied: false, error: error?.message || "新增分镜失败" });
             }
           });
@@ -299,14 +300,20 @@ function makeProductionAgentStore(projectId: string) {
                 projectId: token.projectId,
                 data: payload.items,
               });
-              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
-              flowData.value.storyboard = data;
-              await setFlowData(token.scriptId, token);
-              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
-              callback?.({ success: true, applied: true, message: `已替换为 ${data.length} 条分镜`, data });
+              if (isCurrentUnit(token)) {
+                flowData.value.storyboard = data;
+                try { await setFlowData(token.scriptId, token); }
+                catch (saveError: any) {
+                  return callback?.({ success: true, applied: true, scopeChanged: !isCurrentUnit(token),
+                    workspaceSyncError: saveError?.message || "工作区保存失败",
+                    message: "原制作单元的分镜替换已应用；工作区保存失败，请刷新核对", data });
+                }
+              }
+              const scopeChanged = !isCurrentUnit(token);
+              callback?.({ success: true, applied: true, scopeChanged,
+                message: scopeChanged ? "已应用到原制作单元；当前界面已切换，未更新当前工作区" : `已替换为 ${data.length} 条分镜`, data });
             } catch (e: any) {
-              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
-              callback?.({ success: false, error: e?.message || "整套替换分镜失败" });
+              callback?.({ success: false, applied: false, error: e?.message || "整套替换分镜失败" });
             }
           });
         }
@@ -574,13 +581,13 @@ function makeProductionAgentStore(projectId: string) {
       socket.value!.emit("updateContext", ctx);
     }
     async function addStoryboardInfo(items: any[], token: UnitToken) {
-      if (!isCurrentUnit(token)) return null;
+      if (!isCurrentUnit(token)) return { dispatched: false, data: null, current: false };
       const { data } = await axios.post("/production/storyboard/batchAddStoryboardInfo", {
         scriptId: token.scriptId,
         data: items,
         projectId: token.projectId,
       });
-      return isCurrentUnit(token) ? data : null;
+      return { dispatched: true, data, current: isCurrentUnit(token) };
     }
 
     const loadingHistory = ref(false);

@@ -10,7 +10,7 @@ const spec={productionMode:'AI_REFERENCE_GENERATE',primaryAssetId:6,referenceAss
 test('actual Socket add preserves seven fields through the HTTP batch payload',async()=>{
  let sent;const flowData={value:{storyboard:[]}};
  const token={projectId:1,scriptId:10,generation:1};
- const handler=socketHandler('addStoryboard',{storyboardProductionFields,flowData,addStoryboardInfo:async(items,scope)=>{sent={items,scope};return [{...items[0],id:9}];},throttledFn:()=>{},socketUnit:()=>token,isCurrentUnit:()=>true,useStoryboardRevision:()=>({state:{mode:'LEGACY'}}),$t:x=>x});
+ const handler=socketHandler('addStoryboard',{storyboardProductionFields,flowData,addStoryboardInfo:async(items,scope)=>{sent={items,scope};return {dispatched:true,data:[{...items[0],id:9}],current:true};},throttledFn:()=>{},socketUnit:()=>token,isCurrentUnit:()=>true,useStoryboardRevision:()=>({state:{mode:'LEGACY'}}),$t:x=>x});
  await handler({...spec,projectId:1,scriptId:10,prompt:'shot',duration:3,videoDesc:'screen',shouldGenerateImage:'false',associateAssetsIds:[6]},()=>{});
  assert.deepEqual(sent.scope,token);assert.deepEqual(storyboardProductionFields(sent.items[0]),spec);assert.equal(sent.items[0].shouldGenerateImage,0);
  assert.equal(sent.items[0].primaryAssetId,6);assert.deepEqual(sent.items[0].referenceAssetIds,[4,5]);assert.equal(flowData.value.storyboard[0].id,9);
@@ -27,7 +27,7 @@ test('legacy batch add uses captured scope and returns exact production metadata
  const declaration=find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='addStoryboardInfo');
  const fn=new Function('axios','isCurrentUnit',compile(declaration)+';return addStoryboardInfo;')({post:async(_url,value)=>{body=value;return {data:[after]};}},()=>true);
  const result=await fn([before],token);assert.deepEqual(body,{projectId:1,scriptId:10,data:[before]});
- assert.deepEqual(storyboardProductionFields(result[0]),storyboardProductionFields(after));
+ assert.equal(result.dispatched,true);assert.equal(result.current,true);assert.deepEqual(storyboardProductionFields(result.data[0]),storyboardProductionFields(after));
  assert.deepEqual(storyboardProductionFields({shouldGenerateImage:1,associateAssetsIds:[6]}),{});
 });
 test('B1 local IMAGE_PROMPT Apply updates only execution fields and preserves semantic prompt',()=>{
