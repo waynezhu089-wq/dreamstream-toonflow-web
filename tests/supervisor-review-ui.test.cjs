@@ -29,7 +29,7 @@ function setup(t, options = {}) {
     if (url.endsWith('/gate/check')) return { data: { pass: false, code: 'SUPERVISOR_REVIEW_REQUIRED', reason: 'Review needed', effectiveDecision: null, staleCount: 1, targetHash: target(body.scriptId).target.targetHash, controlContextHash: 'a'.repeat(64), revisionEpoch: 0 } };
     if (url.endsWith('/ai/context')) { if (options.aiContextError) throw Error('AI policy unavailable'); return { data: { skillId: 'supervisor.test', skillVersion: 'v1', skillStatus: 'ACTIVE', resolvedFrom: { scopeType: 'STAGE', scopeKey: 'project:7:script:42:stage:supervisor-review' }, supervisorResolutionHash: 'c'.repeat(64), overrideChain: [], targetHash: target(body.scriptId).target.targetHash, controlContextHash: 'a'.repeat(64), revisionEpoch: 0 } }; }
     if (url.endsWith('/review/ai')) return options.aiResponse ? options.aiResponse() : { data: { decision: 'PASS' } };
-    if (url.endsWith('/review/decide')) return { data: { reviewId: 'new' } };
+    if (url.endsWith('/review/decide')) { if (options.decideError) throw options.decideError; return { data: { reviewId: 'new' } }; }
     throw Error(url);
   };
   const props = vue.reactive({ visible: true, projectId: 7, scriptId: 42 });
@@ -104,4 +104,27 @@ test('AI failure remains in its section and duplicate triggers are disabled whil
   const noPolicy = setup(t, { aiContextError: true }); await settle();
   assert.match(noPolicy.el.textContent, /AI policy unavailable/);
   assert.equal(noPolicy.button('人工确认 PASS').disabled, false);
+});
+
+test('REVISE draft survives same-unit epoch mismatch but is cleared on a real unit switch', async t => {
+  const f = setup(t, { decideError: { message: 'epoch changed', data: { reason: 'SUPERVISOR_REVISION_CHANGED' } } });
+  await settle();
+  const input = (element, value) => { element.value = value; element.dispatchEvent(new window.Event('input', { bubbles: true })); };
+  f.button('填写 REVISE').click(); await settle();
+  input(f.el.querySelector('.editor textarea'), 'A unit summary');
+  f.button('添加问题').click(); await settle();
+  input(f.el.querySelector('.issue input'), 'A_BLOCKER');
+  input(f.el.querySelector('.issue textarea'), 'A unit issue');
+  await settle(); assert.equal(f.button('提交 REVISE').disabled, false);
+  f.button('提交 REVISE').click(); await settle();
+  assert.equal(f.calls.filter(call => call.url.endsWith('/review/decide')).length, 1);
+  assert.equal(f.el.querySelector('.editor textarea').value, 'A unit summary');
+  assert.equal(f.el.querySelector('.issue textarea').value, 'A unit issue');
+  f.props.scriptId = 43; await settle();
+  assert.equal(f.el.querySelector('.editor'), null);
+  f.button('填写 REVISE').click(); await settle();
+  assert.equal(f.el.querySelector('.editor textarea').value, '');
+  assert.equal(f.el.querySelector('.issue'), null);
+  assert.equal(f.button('提交 REVISE').disabled, true);
+  assert.equal(f.calls.filter(call => call.url.endsWith('/review/decide')).length, 1);
 });

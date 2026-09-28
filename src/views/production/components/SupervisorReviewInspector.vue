@@ -136,7 +136,14 @@ function pass() {
   void submit('PASS', '人工确认当前 Storyboard 语义与生产规划通过。', []);
 }
 function revise() { void submit('REVISE', summary.value.trim(), issues.value); }
-watch(() => [props.visible, props.projectId, props.scriptId], () => { ++epoch; busy.value = false; aiBusy.value = false; currentReview.value = null; target.value = null; gate.value = null; history.value = []; historyEvidence.value = null; aiContext.value = null; aiError.value = ''; if (props.visible) void load(); }, { immediate: true });
+watch(() => [props.visible, props.projectId, props.scriptId], (next, previous) => {
+  ++epoch; busy.value = false; aiBusy.value = false;
+  if (previous && (next[1] !== previous[1] || next[2] !== previous[2])) {
+    showRevise.value = false; summary.value = ''; issues.value = [];
+  }
+  currentReview.value = null; target.value = null; gate.value = null; history.value = []; historyEvidence.value = null; aiContext.value = null; aiError.value = '';
+  if (props.visible) void load();
+}, { immediate: true, flush: 'sync' });
 defineExpose({ load });
 </script>
 <style scoped>

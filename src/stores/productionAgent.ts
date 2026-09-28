@@ -66,6 +66,11 @@ function makeProductionAgentStore(projectId: string) {
     const isCurrentUnit = (token: UnitToken | null): token is UnitToken => !!token &&
       token.projectId === Number(projectId) && token.scriptId === episodesId.value && token.generation === unitGeneration.value &&
       Number(projectStore().project?.id) === token.projectId;
+    function socketUnit(payload: any): UnitToken | null {
+      const token = captureUnit();
+      return token && isCurrentUnit(token) && Number.isSafeInteger(payload?.projectId) && Number.isSafeInteger(payload?.scriptId) &&
+        payload.projectId === token.projectId && payload.scriptId === token.scriptId ? token : null;
+    }
     function invalidateUnit() {
       unitGeneration.value++;
       stopAssetsPolling();
@@ -223,10 +228,20 @@ function makeProductionAgentStore(projectId: string) {
             callback({ success: true, message: assetsData });
           });
           s.on("generateStoryboard", async (data, callback) => {
-            const storyData = await batchGenerateStoryboard(data.ids);
-            callback({ success: true, message: storyData });
+            const token = socketUnit(data);
+            if (!token) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+            try {
+              const storyData = await batchGenerateStoryboard(data.ids);
+              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+              callback({ success: true, applied: true, message: storyData });
+            } catch (error: any) {
+              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+              callback({ success: false, applied: false, error: error?.message || "分镜生产请求失败" });
+            }
           });
           s.on("addStoryboard", async (data, callback) => {
+            const token = socketUnit(data);
+            if (!token) return callback({ status: "CONTEXT_MISMATCH", applied: false });
             const revision = useStoryboardRevision();
             if (revision.state.mode !== "LEGACY") {
               try {
@@ -251,12 +266,21 @@ function makeProductionAgentStore(projectId: string) {
                   : 0,
               associateAssetsIds: data.associateAssetsIds || [],
             };
-            flowData.value.storyboard.push(insertVal);
-            await addStoryboardInfo([insertVal]);
-            throttledFn(captureUnit());
-            callback({ success: true, applied: true, message: $t("storyboard.assets.derivativeAddSuccess") });
+            try {
+              const rows = await addStoryboardInfo([insertVal], token);
+              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+              if (!Array.isArray(rows) || !rows.length) throw new Error("新增分镜未返回有效记录");
+              flowData.value.storyboard.push({ ...insertVal, ...rows[0] });
+              throttledFn(token);
+              callback({ success: true, applied: true, message: $t("storyboard.assets.derivativeAddSuccess") });
+            } catch (error: any) {
+              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+              callback({ success: false, applied: false, error: error?.message || "新增分镜失败" });
+            }
           });
           s.on("replaceStoryboard", async (payload: { items: any[] }, callback) => {
+            const token = socketUnit(payload);
+            if (!token) return callback({ status: "CONTEXT_MISMATCH", applied: false });
             const revision = useStoryboardRevision();
             if (revision.state.mode !== "LEGACY") {
               try {
@@ -271,14 +295,17 @@ function makeProductionAgentStore(projectId: string) {
             }
             try {
               const { data } = await axios.post("/production/storyboard/replaceStoryboard", {
-                scriptId: episodesId.value,
-                projectId: projectId,
+                scriptId: token.scriptId,
+                projectId: token.projectId,
                 data: payload.items,
               });
+              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
               flowData.value.storyboard = data;
-              await setFlowData(episodesId.value);
+              await setFlowData(token.scriptId, token);
+              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
               callback?.({ success: true, applied: true, message: `已替换为 ${data.length} 条分镜`, data });
             } catch (e: any) {
+              if (!isCurrentUnit(token)) return callback({ status: "CONTEXT_MISMATCH", applied: false });
               callback?.({ success: false, error: e?.message || "整套替换分镜失败" });
             }
           });
@@ -546,24 +573,14 @@ function makeProductionAgentStore(projectId: string) {
       if (!connected.value) connect();
       socket.value!.emit("updateContext", ctx);
     }
-    async function addStoryboardInfo(items: any[]) {
+    async function addStoryboardInfo(items: any[], token: UnitToken) {
+      if (!isCurrentUnit(token)) return null;
       const { data } = await axios.post("/production/storyboard/batchAddStoryboardInfo", {
-        scriptId: episodesId.value,
+        scriptId: token.scriptId,
         data: items,
-        projectId: projectId,
+        projectId: token.projectId,
       });
-
-      flowData.value.storyboard.forEach((item) => {
-        const updated = data.find((d: Storyboard) => d.prompt == item.prompt && d.duration == item.duration && d.videoDesc == item.videoDesc);
-        if (updated) {
-          Object.assign(item, storyboardProductionFields(updated));
-          item.id = updated.id;
-          item.trackId = updated.trackId;
-          item.src = updated.src;
-          item.state = updated.state;
-          item.associateAssetsIds = updated.associateAssetsIds;
-        }
-      });
+      return isCurrentUnit(token) ? data : null;
     }
 
     const loadingHistory = ref(false);

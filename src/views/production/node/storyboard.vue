@@ -214,7 +214,6 @@ function applySkillPrompt(result: Storyboard) {
 async function reconcileCompositeProvenance() {
   await productionAgentStore().getFlowData();
 }
-watch(() => [project.value?.id, episodesId.value], () => { compositeShot.value = null; skillShot.value = null; });
 
 const visible = ref(false);
 const previewVisible = ref(false);
@@ -223,6 +222,13 @@ const gridScale = useLocalStorage("storyboardGridScale", 1);
 
 const hoveredIndex = ref<number | null>(null);
 const selectedIds = ref<number[]>([]);
+watch(() => [project.value?.id, episodesId.value], () => {
+  compositeShot.value = null; skillShot.value = null; selectedIds.value = [];
+}, { flush: "sync" });
+watch(() => storyboard.value.map(item => item.id), ids => {
+  const active = new Set(ids);
+  selectedIds.value = selectedIds.value.filter(id => active.has(id));
+}, { flush: "sync" });
 
 function setHoveredFrame(index: number | null) {
   hoveredIndex.value = index;

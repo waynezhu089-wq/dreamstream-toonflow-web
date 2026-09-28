@@ -9,22 +9,25 @@ function socketHandler(event,scope){const text=find(n=>ts.isCallExpression(n)&&n
 const spec={productionMode:'AI_REFERENCE_GENERATE',primaryAssetId:6,referenceAssetIds:[4,5],referenceAssetGroupIds:['views'],promptSkillId:'product',promptSkillVersion:'2',capabilityId:'future.reference'};
 test('actual Socket add preserves seven fields through the HTTP batch payload',async()=>{
  let sent;const flowData={value:{storyboard:[]}};
- const handler=socketHandler('addStoryboard',{storyboardProductionFields,flowData,addStoryboardInfo:async items=>{sent=items;},throttledFn:()=>{},captureUnit:()=>null,useStoryboardRevision:()=>({state:{mode:'LEGACY'}}),$t:x=>x});
- await handler({...spec,prompt:'shot',duration:3,videoDesc:'screen',shouldGenerateImage:'false',associateAssetsIds:[6]},()=>{});
- assert.deepEqual(storyboardProductionFields(sent[0]),spec);assert.equal(sent[0].shouldGenerateImage,0);
- assert.equal(sent[0].primaryAssetId,6);assert.deepEqual(sent[0].referenceAssetIds,[4,5]);
+ const token={projectId:1,scriptId:10,generation:1};
+ const handler=socketHandler('addStoryboard',{storyboardProductionFields,flowData,addStoryboardInfo:async(items,scope)=>{sent={items,scope};return [{...items[0],id:9}];},throttledFn:()=>{},socketUnit:()=>token,isCurrentUnit:()=>true,useStoryboardRevision:()=>({state:{mode:'LEGACY'}}),$t:x=>x});
+ await handler({...spec,projectId:1,scriptId:10,prompt:'shot',duration:3,videoDesc:'screen',shouldGenerateImage:'false',associateAssetsIds:[6]},()=>{});
+ assert.deepEqual(sent.scope,token);assert.deepEqual(storyboardProductionFields(sent.items[0]),spec);assert.equal(sent.items[0].shouldGenerateImage,0);
+ assert.equal(sent.items[0].primaryAssetId,6);assert.deepEqual(sent.items[0].referenceAssetIds,[4,5]);assert.equal(flowData.value.storyboard[0].id,9);
 });
 test('actual replace forwards per-shot modes and server response without filtering metadata',async()=>{
  const flowData={value:{storyboard:[]}};let sent;
- const handler=socketHandler('replaceStoryboard',{axios:{post:async(url,body)=>{sent=body;return {data:body.data};}},episodesId:{value:10},projectId:1,flowData,setFlowData:async()=>{},useStoryboardRevision:()=>({state:{mode:'LEGACY'}})});
- await handler({items:[{...spec,id:10}]},()=>{});assert.deepEqual(sent,{projectId:1,scriptId:10,data:[{...spec,id:10}]});assert.deepEqual(flowData.value.storyboard[0],{...spec,id:10});
+ const token={projectId:1,scriptId:10,generation:1};
+ const handler=socketHandler('replaceStoryboard',{axios:{post:async(url,body)=>{sent=body;return {data:body.data};}},socketUnit:()=>token,isCurrentUnit:()=>true,flowData,setFlowData:async()=>{},useStoryboardRevision:()=>({state:{mode:'LEGACY'}})});
+ await handler({projectId:1,scriptId:10,items:[{...spec,id:10}]},()=>{});assert.deepEqual(sent,{projectId:1,scriptId:10,data:[{...spec,id:10}]});assert.deepEqual(flowData.value.storyboard[0],{...spec,id:10});
 });
-test('actual batch response updates production metadata; legacy fields remain absent and explicit null/empty survive',async()=>{
+test('legacy batch add uses captured scope and returns exact production metadata without cross-unit local mutation',async()=>{
  const before={prompt:'p',duration:3,videoDesc:'v',...spec},after={...before,id:9,primaryAssetId:null,referenceAssetIds:[],referenceAssetGroupIds:[],productionMode:'AI_TEXT_TO_IMAGE'};
- const flowData={value:{storyboard:[before]}};
+ const token={projectId:1,scriptId:10,generation:1};let body;
  const declaration=find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='addStoryboardInfo');
- const fn=new Function('axios','episodesId','projectId','flowData','storyboardProductionFields',compile(declaration)+';return addStoryboardInfo;')({post:async()=>({data:[after]})},{value:10},1,flowData,storyboardProductionFields);
- await fn([before]);assert.deepEqual(storyboardProductionFields(before),storyboardProductionFields(after));
+ const fn=new Function('axios','isCurrentUnit',compile(declaration)+';return addStoryboardInfo;')({post:async(_url,value)=>{body=value;return {data:[after]};}},()=>true);
+ const result=await fn([before],token);assert.deepEqual(body,{projectId:1,scriptId:10,data:[before]});
+ assert.deepEqual(storyboardProductionFields(result[0]),storyboardProductionFields(after));
  assert.deepEqual(storyboardProductionFields({shouldGenerateImage:1,associateAssetsIds:[6]}),{});
 });
 test('B1 local IMAGE_PROMPT Apply updates only execution fields and preserves semantic prompt',()=>{
