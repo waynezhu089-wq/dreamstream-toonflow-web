@@ -75,6 +75,32 @@ test('current unit Plan/Gate load; Chinese list, blockers, required/source contr
   assert.equal(f.container.querySelectorAll('input[type=file]').length, 1);
   assert.ok(f.button('去资产生成'));
 });
+
+test('Recipe template requires explicit preview and human apply for the current unit, then refreshes authoritative Plan', async t => {
+  const f = fixture(t, [item()]); await settle();
+  assert.equal(f.requests.some(r => r.url.includes('asset-plan-template')), false);
+  const preview = { schemaVersion: 1, previewHash: 'a'.repeat(64), proposalContextHash: 'b'.repeat(64),
+    proposedPlanHash: 'c'.repeat(64), canApply: true, conflicts: [],
+    proposedPlan: [item(), item({ assetKey: 'scene', name: '场景', category: '环境', sourcePolicy: 'AI_ALLOWED' })],
+    changes: [{ assetKey: 'scene', kind: 'ADDED', current: null,
+      proposed: { ...item({ assetKey: 'scene', name: '场景', category: '环境', sourcePolicy: 'AI_ALLOWED' }), position: 1 } }] };
+  f.control.before = async (url, body) => {
+    if (url.endsWith('/asset-plan-template/preview')) return { data: preview };
+    if (url.endsWith('/asset-plan-template/apply')) {
+      f.plans.set(body.scriptId, structuredClone(preview.proposedPlan));
+      return { data: { status: 'APPLIED', resultPlanHash: preview.proposedPlanHash } };
+    }
+  };
+  await f.click('预览模板差异');
+  assert.ok(f.container.textContent.includes('新增：场景'));
+  assert.equal(f.requests.filter(r => r.url.endsWith('/asset-plan-template/apply')).length, 0);
+  await f.click('人工确认应用到当前素材清单');
+  const request = f.requests.find(r => r.url.endsWith('/asset-plan-template/apply'));
+  assert.deepEqual(request.body, { projectId: 1, scriptId: 10, previewHash: preview.previewHash,
+    proposalContextHash: preview.proposalContextHash, proposedPlanHash: preview.proposedPlanHash });
+  assert.ok(f.container.textContent.includes('场景'));
+  assert.ok(f.container.textContent.includes('已应用模板建议'));
+});
 test('actual UI adds, edits and deletes a stable plan item with only editable fields', async t => {
   const f = fixture(t); await settle(); await f.click('＋ 新增素材');
   const form = () => f.container.querySelector('form');

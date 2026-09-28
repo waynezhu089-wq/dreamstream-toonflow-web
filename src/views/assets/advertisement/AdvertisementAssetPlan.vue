@@ -29,6 +29,23 @@
         </div>
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
+      <section class="template-preview" aria-label="Recipe 素材清单模板">
+        <h2>Recipe 素材清单建议</h2>
+        <p class="hint">模板只提供建议。预览差异并由你确认后，才会修改当前制作单元的素材清单。</p>
+        <button :disabled="loading || busy || templateBusy" @click="previewTemplate">预览模板差异</button>
+        <p v-if="templateError" role="alert" class="error">{{ templateError }}</p>
+        <p v-if="templateNotice" role="status">{{ templateNotice }}</p>
+        <div v-if="templatePreview" class="template-diff">
+          <p>当前 {{ items.length }} 项，拟议 {{ templatePreview.proposedPlan.length }} 项。</p>
+          <ul><li v-for="change in templatePreview.changes" :key="change.assetKey">
+            {{ change.kind === 'ADDED' ? '新增' : change.kind === 'MODIFIED' ? '修改' : '保留' }}：{{ change.proposed.name }}
+            · {{ change.proposed.required ? '必需' : '可选' }} · {{ policyLabel(change.proposed.sourcePolicy) }}
+            <span v-if="change.current?.assetId"> · 保留绑定 #{{ change.current.assetId }}</span>
+          </li></ul>
+          <p v-for="conflict in templatePreview.conflicts" :key="conflict.assetKey" class="error">{{ conflict.assetKey }}：现有绑定不符合模板来源要求，请先解除或修复绑定。</p>
+          <button class="primary" :disabled="!templatePreview.canApply || templateBusy" @click="applyTemplate">人工确认应用到当前素材清单</button>
+        </div>
+      </section>
       <div class="list-heading"><h2>素材清单</h2><button :disabled="loading || busy || !gate || !!editor" @click="edit()">＋ 新增素材</button></div>
       <p class="hint">“必需”素材会影响是否可以开始制作；“可选”素材不会阻塞。状态以服务器最新检查结果为准。</p>
       <article v-for="item in items" :key="item.assetKey" class="plan-item" :aria-label="item.name">
@@ -83,6 +100,7 @@ const scriptId = computed(() => currentAdvertisementUnit(props.projectId, route.
 const context = computed<Context | null>(() => unitId(props.projectId) && scriptId.value && units.value.some(unit => unit.id === scriptId.value) ? { projectId: props.projectId, scriptId: scriptId.value } : null);
 const { items, gate, assets, loading, busy, error, canConfirm, required, blockers, refresh, saveItem, remove, bind, unbind, upload, confirm } = useAdvertisementPlan(context, (url, body) => axios.post(url, body));
 const editor = ref<PlanItem | null>(null), choices = ref<Record<string, number | undefined>>({});
+const templatePreview = ref<any>(null), templateError = ref(""), templateNotice = ref(""), templateBusy = ref(false);
 const editorPanel = ref<HTMLElement | null>(null);
 const editorTitle = computed(() => items.value.some(row => row.assetKey === editor.value?.assetKey) ? "编辑素材" : "新增素材");
 const locked = computed(() => loading.value || busy.value || !!editor.value || !gate.value);
@@ -101,7 +119,32 @@ async function loadUnits() {
   } catch (e: any) { if (request === unitRequest) unitError.value = e?.message || "读取制作单元失败，请重试。"; }
 }
 watch(() => props.projectId, loadUnits, { immediate: true });
-watch(context, () => { editor.value = null; choices.value = {}; }, { flush: "sync" });
+watch(context, () => { editor.value = null; choices.value = {}; templatePreview.value = null; templateError.value = ""; templateNotice.value = ""; }, { flush: "sync" });
+function sameContext(ctx: Context) { return context.value?.projectId === ctx.projectId && context.value?.scriptId === ctx.scriptId; }
+async function previewTemplate() {
+  if (!context.value || templateBusy.value) return;
+  const ctx = { ...context.value }; templateBusy.value = true; templatePreview.value = null; templateError.value = ""; templateNotice.value = "";
+  try {
+    const response = await axios.post("/recipes/project/asset-plan-template/preview", ctx);
+    if (sameContext(ctx)) templatePreview.value = response.data;
+  } catch (e: any) { if (sameContext(ctx)) templateError.value = e?.message || "模板预览失败，请稍后重试。"; }
+  finally { templateBusy.value = false; }
+}
+async function applyTemplate() {
+  if (!context.value || !templatePreview.value?.canApply || templateBusy.value) return;
+  const ctx = { ...context.value }, preview = templatePreview.value;
+  templateBusy.value = true; templateError.value = "";
+  try {
+    const response = await axios.post("/recipes/project/asset-plan-template/apply", { ...ctx,
+      previewHash: preview.previewHash, proposalContextHash: preview.proposalContextHash,
+      proposedPlanHash: preview.proposedPlanHash });
+    if (!sameContext(ctx)) return;
+    templatePreview.value = null;
+    templateNotice.value = response.data.status === "ALREADY_APPLIED" ? "当前清单已是确认的结果。" : "已应用模板建议。";
+    await refresh();
+  } catch (e: any) { if (sameContext(ctx)) { templatePreview.value = null; templateError.value = `${e?.message || "模板应用失败"}。请重新预览。`; } }
+  finally { templateBusy.value = false; }
+}
 function changeUnit(event: Event) {
   const id = unitId((event.target as HTMLSelectElement).value);
   if (!id) return;
@@ -138,4 +181,5 @@ h1,h2,h3,p { margin: 0 0 12px; } h1 { font-size: 24px; } h2 { font-size: 18px; }
 button,.upload { border: 1px solid var(--td-component-border, #c9d2df); border-radius: 6px; padding: 9px 13px; background: var(--td-bg-color-container, #fff); color: inherit; cursor: pointer; font: inherit; font-size: 14px; }.primary,.upload { background: #245bd8; border-color: #245bd8; color: white; }.danger { color: #b83232; }button:disabled,.disabled { opacity: .5; cursor: not-allowed; }
 input,select { font: inherit; color: inherit; background: var(--td-bg-color-container, #fff); border: 1px solid var(--td-component-border, #c9d2df); border-radius: 6px; padding: 9px; max-width: 100%; box-sizing: border-box; }select { min-width: 190px; }.unit { display: grid; gap: 8px; font-size: 14px; }.upload { position: relative; }.upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
 .editor { margin-top: 18px; padding: 22px; border: 2px solid #245bd8; border-radius: 10px; max-width: 640px; }.editor label { display: grid; gap: 8px; margin-bottom: 16px; }.editor .checkbox { display: flex; align-items: center; }.binding { margin-top: 14px; }button:focus-visible,input:focus-visible,select:focus-visible { outline: 2px solid #245bd8; outline-offset: 2px; }
+.template-preview { border: 1px solid var(--td-component-border); border-radius: 10px; padding: 16px; margin-bottom: 22px; background: var(--td-bg-color-container); }.template-diff { margin-top: 12px; max-height: 45vh; overflow-y: auto; }.template-diff li { margin: 6px 0; }
 </style>
