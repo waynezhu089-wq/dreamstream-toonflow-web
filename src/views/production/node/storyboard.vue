@@ -24,6 +24,7 @@
               <div class="frameCard">
                 <t-button v-if="project?.projectType === 'general_video' && project?.type === 'advertisement' && item.productionMode === 'REAL_AI_COMPOSITE' && item.primaryAssetId" size="small" :disabled="controlled && !props.imageProductionReady" @click.stop="compositeShot = item">背景 + 真实素材合成</t-button>
                 <t-button v-if="project?.projectType === 'general_video' && project?.type === 'advertisement' && item.id && item.productionMode !== 'REAL_ASSET_DIRECT'" size="small" variant="outline" @click.stop="skillShot = item">图片 Prompt Skill</t-button>
+                <t-button v-if="controlled && item.id && item.productionMode === 'AI_TEXT_TO_IMAGE'" size="small" variant="outline" @click.stop="capabilityShot = item">镜头 Capability：{{ item.capabilityId || '继承' }}</t-button>
                 <div
                   class="frameImage"
                   :style="{
@@ -136,6 +137,7 @@
     </t-dialog>
     <CompositeAttempt v-if="compositeShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="compositeShot.id!" :primary-asset-id="compositeShot.primaryAssetId!" :capability-id="compositeShot.capabilityId" :semantic-prompt="compositeShot.prompt" :image-prompt="compositeShot.imagePrompt" @close="compositeShot = null" @completed="applyCompositeState" @pending="applyCompositeState" @reconcile="reconcileCompositeProvenance" />
     <ImagePromptSkill v-if="skillShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="skillShot.id!" :semantic-prompt="skillShot.prompt ?? ''" :image-prompt="skillShot.imagePrompt" :prompt-skill-id="skillShot.promptSkillId" :prompt-skill-version="skillShot.promptSkillVersion" @close="skillShot = null" @applied="applySkillPrompt" />
+    <ShotCapabilityOverride v-if="capabilityShot && project?.id && episodesId" :project-id="Number(project.id)" :script-id="Number(episodesId)" :storyboard-id="capabilityShot.id!" :capability-id="capabilityShot.capabilityId" @close="capabilityShot = null" @applied="refreshCapabilityShot" />
     <t-image-viewer
       v-model:visible="previewVisible"
       v-if="previewVisible"
@@ -151,6 +153,7 @@ import { useLocalStorage } from "@vueuse/core";
 import editImage from "../components/editImage/index.vue";
 import CompositeAttempt from "../components/CompositeAttempt.vue";
 import ImagePromptSkill from "../components/ImagePromptSkill.vue";
+import ShotCapabilityOverride from "../components/ShotCapabilityOverride.vue";
 import { LoadingPlugin } from "tdesign-vue-next";
 import { Handle, Position, type Edge } from "@vue-flow/core";
 import axios from "@/utils/axios";
@@ -203,6 +206,11 @@ function submitSemanticAdd() {
 }
 const compositeShot = ref<Storyboard | null>(null);
 const skillShot = ref<Storyboard | null>(null);
+const capabilityShot = ref<Storyboard | null>(null);
+async function refreshCapabilityShot() {
+  capabilityShot.value = null;
+  await productionAgentStore().getFlowData();
+}
 function applyCompositeState(result: { id: number; src: string | null; state: string; reason: string }) {
   const row = storyboard.value.find(s => s.id === result.id);
   if (row) Object.assign(row, result);
@@ -223,7 +231,7 @@ const gridScale = useLocalStorage("storyboardGridScale", 1);
 const hoveredIndex = ref<number | null>(null);
 const selectedIds = ref<number[]>([]);
 watch(() => [project.value?.id, episodesId.value], () => {
-  compositeShot.value = null; skillShot.value = null; selectedIds.value = [];
+  compositeShot.value = null; skillShot.value = null; capabilityShot.value = null; selectedIds.value = [];
 }, { flush: "sync" });
 watch(() => storyboard.value.map(item => item.id), ids => {
   const active = new Set(ids);

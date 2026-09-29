@@ -26,9 +26,9 @@ test('retired shot selection disappears after authoritative rows refresh and uni
   const storyboard = vue.ref([{ id: 7 }, { id: 8 }]);
   const selectedIds = vue.ref([7, 8]);
   const project = vue.ref({ id: 1 }), episodesId = vue.ref(10);
-  const compositeShot = vue.ref({ id: 7 }), skillShot = vue.ref({ id: 7 });
-  new Function('watch', 'storyboard', 'selectedIds', 'project', 'episodesId', 'compositeShot', 'skillShot', compiled)(
-    vue.watch, storyboard, selectedIds, project, episodesId, compositeShot, skillShot);
+  const compositeShot = vue.ref({ id: 7 }), skillShot = vue.ref({ id: 7 }), capabilityShot = vue.ref({ id: 7 });
+  new Function('watch', 'storyboard', 'selectedIds', 'project', 'episodesId', 'compositeShot', 'skillShot', 'capabilityShot', compiled)(
+    vue.watch, storyboard, selectedIds, project, episodesId, compositeShot, skillShot, capabilityShot);
   storyboard.value = [{ id: 8 }];
   await vue.nextTick();
   assert.deepEqual(selectedIds.value, [8]);
@@ -37,4 +37,5 @@ test('retired shot selection disappears after authoritative rows refresh and uni
   assert.deepEqual(selectedIds.value, []);
   assert.equal(compositeShot.value, null);
   assert.equal(skillShot.value, null);
+  assert.equal(capabilityShot.value, null);
 });
