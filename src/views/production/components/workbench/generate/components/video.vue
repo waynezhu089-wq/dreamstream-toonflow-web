@@ -100,6 +100,14 @@ const episodesId = inject<Ref<number>>("episodesId")!;
 
 const selectVideoId = computed(() => currentTrack.value?.selectVideoId);
 const acceptCommandIds = new Map<string, string>();
+
+function clearAcceptCommandIdsForTrack(trackId: number) {
+  const prefix = `${trackId}:`;
+  for (const key of acceptCommandIds.keys()) {
+    if (key.startsWith(prefix)) acceptCommandIds.delete(key);
+  }
+}
+
 const videoCoverMap = ref<Record<string, string>>({});
 const videoPlayerVisible = ref(false);
 const playingVideoSrc = ref<string>();
@@ -112,7 +120,8 @@ function canAccept(v: HistoryVideoItem) {
 /** Accept 候选视频；无 HTTP response 的 transport retry 复用同一 acceptanceId。 */
 async function selectVideo(v: HistoryVideoItem) {
   if (!canAccept(v) || currentTrack.value?.id == null) return;
-  const key = `${currentTrack.value.id}:${v.id}`;
+  const trackId = currentTrack.value.id;
+  const key = `${trackId}:${v.id}`;
   const acceptanceId = acceptCommandIds.get(key) ?? uuidv4();
   acceptCommandIds.set(key, acceptanceId);
   try {
@@ -120,11 +129,13 @@ async function selectVideo(v: HistoryVideoItem) {
       projectId: project.value?.id,
       scriptId: episodesId.value ?? 0,
       videoId: v.id,
-      trackId: currentTrack.value.id,
+      trackId,
       acceptanceId,
       reason: null,
     });
-    acceptCommandIds.delete(key);
+    // A definite server response reconciles this track. Any older transport-ambiguous
+    // command IDs on sibling candidates are no longer valid for a future intentional click.
+    clearAcceptCommandIdsForTrack(trackId);
     window.$message.success($t("workbench.generate.selectVideoSuccess"));
     emit("refresh");
   } catch (error: any) {
