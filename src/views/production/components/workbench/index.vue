@@ -155,6 +155,7 @@ function editFootage() {
             color: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
             url: subItem.filePath,
             selected: item.videoId == subItem.id ? true : false,
+            productionVideo: subItem.productionVideo,
           }));
         }
       });
