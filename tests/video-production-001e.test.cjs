@@ -43,3 +43,10 @@ test('ordinary non-production media stays optional and production marker is fail
   assert.match(source, /if \(marker === undefined\) continue/);
   assert.match(source, /if \(!parsed\) throw new Error/);
 });
+
+
+test('Workbench adopts server effective video model so inherited presets can drive real generation UI', () => {
+  const source = read('src/views/production/components/workbench/generate/index.vue');
+  assert.match(source, /data\.effectiveVideoModel/);
+  assert.match(source, /modelParmas\.value\.model = data\.effectiveVideoModel/);
+});
