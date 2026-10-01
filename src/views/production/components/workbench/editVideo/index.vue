@@ -124,7 +124,8 @@ import {
   type MediaClip,
 } from "vue-clip-track";
 
-import type { MediaItem, AudioItem } from "./utils/mediaData";
+import type { MediaItem, AudioItem, ProductionVideoIdentity } from "./utils/mediaData";
+import axios from "@/utils/axios";
 import { getDefaultDuration, findOrCreateTrackWithSpace } from "./utils/trackHelper";
 import { loadVideoClipThumbnails, loadAudioClipWaveform, loadInitialAudioWaveforms } from "./utils/mediaLoader";
 import { findAdjacentClipsAtTime, addTransitionBetweenClips } from "./utils/transitionHelper";
@@ -224,11 +225,41 @@ const videoTrackRef = ref();
 const videoPreviewRef = ref<InstanceType<typeof videoPreview>>();
 const isExporting = ref(false);
 
+function productionIdentity(value: unknown): ProductionVideoIdentity | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as any;
+  if (![v.projectId, v.scriptId, v.trackId, v.videoId].every((n: any) => Number.isSafeInteger(Number(n)) && Number(n) > 0)) return null;
+  if (!/^[a-f0-9]{64}$/.test(String(v.acceptedSourceHash ?? "")) || !/^[a-f0-9]{64}$/.test(String(v.acceptedOutputSha256 ?? ""))) return null;
+  return { projectId: Number(v.projectId), scriptId: Number(v.scriptId), trackId: Number(v.trackId), videoId: Number(v.videoId),
+    acceptedSourceHash: String(v.acceptedSourceHash), acceptedOutputSha256: String(v.acceptedOutputSha256) };
+}
+
+async function validateProductionVideoClips() {
+  const items: ProductionVideoIdentity[] = [];
+  let scope: { projectId: number; scriptId: number } | null = null;
+  const seen = new Set<string>();
+  for (const track of tracksStore.tracks) for (const clip of track.clips) {
+    if (clip.type !== "video") continue;
+    const marker = (clip.config as any)?.dsProductionVideo;
+    if (marker === undefined) continue;
+    const parsed = productionIdentity(marker);
+    if (!parsed) throw new Error("受控视频身份已损坏，请从素材库重新拖入");
+    if (!scope) scope = { projectId: parsed.projectId, scriptId: parsed.scriptId };
+    if (scope.projectId !== parsed.projectId || scope.scriptId !== parsed.scriptId)
+      throw new Error("剪辑台包含不同制作单元的受控视频，无法导出");
+    const key = `${parsed.trackId}:${parsed.videoId}:${parsed.acceptedSourceHash}:${parsed.acceptedOutputSha256}`;
+    if (!seen.has(key)) { seen.add(key); items.push(parsed); }
+  }
+  if (!items.length || !scope) return;
+  await axios.post("/production/workbench/validateAcceptedVideoMaterial", { ...scope, items });
+}
+
 async function handleExport() {
   if (!videoPreviewRef.value) return;
   if (isExporting.value) return;
   isExporting.value = true;
   try {
+    await validateProductionVideoClips();
     await videoPreviewRef.value.exportVideo();
     window.$message.success($t("workbench.production.editVideo.exportSuccess"));
   } catch (error: any) {
@@ -290,6 +321,7 @@ async function handleDropMedia(mediaData: any, trackId: string, startTime: numbe
         trimEnd: duration,
         playbackRate: 1,
         thumbnails: mediaData.thumbnails || [],
+        ...(mediaData.productionVideo ? { config: { dsProductionVideo: mediaData.productionVideo } } : {}),
       } as Partial<MediaClip>;
 
       tracksStore.addClip(track.id, clip as Clip);
