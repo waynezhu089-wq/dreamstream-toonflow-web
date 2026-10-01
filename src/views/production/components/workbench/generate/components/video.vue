@@ -49,7 +49,7 @@
           <div v-if="canAccept(v)" class="selectBtn" @click.stop="selectVideo(v)">
             <i-check size="16" />
           </div>
-          <div class="delBtn" @click.stop="handleDeleteVideo(v)">
+          <div v-if="!v.retired" class="delBtn" @click.stop="handleDeleteVideo(v)">
             <i-delete size="16" />
           </div>
           <div v-if="v.state !== '生成中' && v.state !== '生成失败'" class="download" @click.stop="downloadVideo(v)">
