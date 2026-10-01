@@ -178,6 +178,11 @@ async function handleGenerate() {
   if (!props.data.ratio) return window.$message.error($t("workbench.production.editImage.selectRatio"));
   generating.value = true;
   try {
+    const isAdvertisement = project.value?.projectType === "general_video" && project.value?.type === "advertisement";
+    const scriptId = episodesId?.value;
+    if (isAdvertisement && (typeof scriptId !== "number" || !Number.isSafeInteger(scriptId) || scriptId <= 0)) {
+      throw new Error($t("workbench.production.editImage.generateFailed"));
+    }
     const { data } = await axios.post("/production/editImage/generateFlowImage", {
       references: props.data.references.map((i) => i.image).filter(Boolean),
       model: props.data.model,
@@ -185,6 +190,7 @@ async function handleGenerate() {
       ratio: props.data.ratio,
       prompt: props.data.prompt,
       projectId: props.projectId,
+      ...(isAdvertisement ? { scriptId } : {}),
     });
     props.data.generatedImage = data.url;
   } catch (e) {

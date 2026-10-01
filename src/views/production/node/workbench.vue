@@ -1,7 +1,7 @@
 <template>
   <t-card class="workbench" @click="visible = !visible">
     <div class="titleBar dragHandle pr">
-      <div class="title">{{ $t("workbench.production.node.workbench.title") }}</div>
+      <div class="title">{{ isAdvertisement ? $t("workbench.production.node.workbench.adTitle") : $t("workbench.production.node.workbench.title") }}</div>
       <Handle :id="props.handleIds.target" type="target" :position="Position.Left" style="left: calc(-1 * var(--td-comp-paddingLR-xl))" />
       <!-- <Handle :id="props.handleIds.source" type="source" :position="Position.Right" /> -->
     </div>
@@ -30,6 +30,9 @@
 <script setup lang="ts">
 import workbench from "../components/workbench/index.vue";
 import { Handle, Position } from "@vue-flow/core";
+import projectStore from "@/stores/project";
+const { project } = storeToRefs(projectStore());
+const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
 
 const visible = ref(false);
 

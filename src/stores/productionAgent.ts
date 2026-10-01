@@ -1,29 +1,50 @@
 import axios from "@/utils/axios";
+import { storyboardProductionFields } from "@/utils/storyboardProduction";
 import projectStore from "@/stores/project";
 import settingStore from "@/stores/setting";
 import { useChat } from "@/utils/useChat";
 import type { FlowData, Storyboard } from "@/views/production/utils/flowBuilder";
 import type { ChatMessagesData } from "@tdesign-vue-next/chat";
 import { useThrottleFn } from "@vueuse/core";
+import { useStoryboardRevision } from "@/views/production/revision/coordinator";
+import { semanticCandidate, semanticBaseline } from "@/views/production/revision/proposalPlan";
 
 function makeProductionAgentStore(projectId: string) {
   return defineStore(`productionAgent-${projectId}`, () => {
-    const defMsg: ChatMessagesData[] = [
+    const isAdvertisement = computed(
+      () => projectStore().project?.projectType === "general_video" && projectStore().project?.type === "advertisement",
+    );
+    const defMsg = computed<ChatMessagesData[]>(() => [
       {
         id: "welcome",
         role: "assistant",
         content: [
-          { type: "text", status: "complete", data: $t("workbench.production.chatBox.welcomeMessage") },
+          {
+            type: "text",
+            status: "complete",
+            data: isAdvertisement.value
+              ? $t("workbench.production.chatBox.adWelcomeMessage")
+              : $t("workbench.production.chatBox.welcomeMessage"),
+          },
           {
             type: "suggestion",
             status: "complete",
-            data: [{ title: $t("workbench.production.chatBox.startMakingVideo"), prompt: $t("workbench.production.chatBox.startMakingVideoPrompt") }],
+            data: [
+              {
+                title: isAdvertisement.value
+                  ? $t("workbench.production.chatBox.adStartPlanning")
+                  : $t("workbench.production.chatBox.startMakingVideo"),
+                prompt: isAdvertisement.value
+                  ? $t("workbench.production.chatBox.adStartPlanningPrompt")
+                  : $t("workbench.production.chatBox.startMakingVideoPrompt"),
+              },
+            ],
           },
         ],
       },
-    ];
+    ]);
     onMounted(() => {
-      if (messages.value.length <= 0) messages.value = [...defMsg, ...messages.value];
+      if (messages.value.length <= 0) messages.value = [...defMsg.value, ...messages.value];
     });
 
     const flowData = ref<FlowData>({
@@ -38,6 +59,24 @@ function makeProductionAgentStore(projectId: string) {
     });
 
     const episodesId = ref<number>();
+    const unitGeneration = ref(0);
+    type UnitToken = { projectId: number; scriptId: number; generation: number };
+    const captureUnit = (): UnitToken | null => episodesId.value && episodesId.value > 0
+      ? { projectId: Number(projectId), scriptId: episodesId.value, generation: unitGeneration.value } : null;
+    const isCurrentUnit = (token: UnitToken | null): token is UnitToken => !!token &&
+      token.projectId === Number(projectId) && token.scriptId === episodesId.value && token.generation === unitGeneration.value &&
+      Number(projectStore().project?.id) === token.projectId;
+    function socketUnit(payload: any): UnitToken | null {
+      const token = captureUnit();
+      return token && isCurrentUnit(token) && Number.isSafeInteger(payload?.projectId) && Number.isSafeInteger(payload?.scriptId) &&
+        payload.projectId === token.projectId && payload.scriptId === token.scriptId ? token : null;
+    }
+    function invalidateUnit() {
+      unitGeneration.value++;
+      stopAssetsPolling();
+      stopStoryboardPolling();
+    }
+    watch(episodesId, (next, previous) => { if (next !== previous) invalidateUnit(); }, { flush: "sync" });
 
     const { connected, messages, chat, stopGenerate, socket, status, reconnect, connect, disconnect } = useChat({
       url: `${settingStore().baseUrl}/socket/productionAgent`,
@@ -108,15 +147,15 @@ function makeProductionAgentStore(projectId: string) {
         //   }
         // }
         if (status == "complete") {
-          throttledFn();
+          throttledFn(captureUnit());
         }
       },
     });
 
     // 实际的节流方法
     const throttledFn = useThrottleFn(
-      () => {
-        setFlowData(episodesId.value);
+      (scheduled: UnitToken | null) => {
+        if (isCurrentUnit(scheduled)) void setFlowData(scheduled.scriptId, scheduled).catch(() => {});
       },
       500,
       true,
@@ -189,11 +228,32 @@ function makeProductionAgentStore(projectId: string) {
             callback({ success: true, message: assetsData });
           });
           s.on("generateStoryboard", async (data, callback) => {
-            const storyData = await batchGenerateStoryboard(data.ids);
-            callback({ success: true, message: storyData });
+            const token = socketUnit(data);
+            if (!token) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+            try {
+              const storyData = await batchGenerateStoryboard(data.ids);
+              const scopeChanged = !isCurrentUnit(token);
+              callback({ success: true, applied: true, accepted: true, scopeChanged,
+                message: scopeChanged ? "原制作单元的分镜生产请求已接收；当前界面已切换，未更新当前工作区" : storyData });
+            } catch (error: any) {
+              callback({ success: false, applied: false, error: error?.message || "分镜生产请求失败" });
+            }
           });
           s.on("addStoryboard", async (data, callback) => {
+            const token = socketUnit(data);
+            if (!token) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+            const revision = useStoryboardRevision();
+            if (revision.state.mode !== "LEGACY") {
+              try {
+                semanticCandidate(data);
+                callback(revision.receiveProposal({ proposalId: data.proposalId, projectId: Number(data.projectId),
+                  scriptId: Number(data.scriptId), kind: "ADD", candidate: data,
+                  baseline: semanticBaseline(flowData.value.storyboard) }));
+              } catch (error: any) { callback({ status: "INVALID_PROPOSAL", applied: false, error: error?.message }); }
+              return;
+            }
             const insertVal = {
+              ...storyboardProductionFields(data),
               prompt: data.prompt || "",
               duration: Number(data.duration) || 0,
               track: data.track || "",
@@ -206,41 +266,96 @@ function makeProductionAgentStore(projectId: string) {
                   : 0,
               associateAssetsIds: data.associateAssetsIds || [],
             };
-            flowData.value.storyboard.push(insertVal);
-            await addStoryboardInfo([insertVal]);
-            throttledFn();
-            callback({ success: true, message: $t("storyboard.assets.derivativeAddSuccess") });
+            try {
+              const result = await addStoryboardInfo([insertVal], token);
+              if (!result.dispatched) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+              if (!isCurrentUnit(token)) return callback({ success: true, applied: true, scopeChanged: true,
+                message: "已应用到原制作单元；当前界面已切换，未更新当前工作区" });
+              if (!Array.isArray(result.data) || !result.data.length) throw new Error("新增分镜未返回有效记录");
+              flowData.value.storyboard.push({ ...insertVal, ...result.data[0] });
+              throttledFn(token);
+              callback({ success: true, applied: true, message: $t("storyboard.assets.derivativeAddSuccess") });
+            } catch (error: any) {
+              callback({ success: false, applied: false, error: error?.message || "新增分镜失败" });
+            }
+          });
+          s.on("replaceStoryboard", async (payload: { items: any[] }, callback) => {
+            const token = socketUnit(payload);
+            if (!token) return callback({ status: "CONTEXT_MISMATCH", applied: false });
+            const revision = useStoryboardRevision();
+            if (revision.state.mode !== "LEGACY") {
+              try {
+                if (!Array.isArray(payload.items) || !payload.items.length) throw new Error("整套替换提案不能为空");
+                payload.items.forEach(semanticCandidate);
+                callback(revision.receiveProposal({ proposalId: (payload as any).proposalId,
+                  projectId: Number((payload as any).projectId), scriptId: Number((payload as any).scriptId),
+                  kind: "REPLACE", candidate: payload.items,
+                  baseline: semanticBaseline(flowData.value.storyboard) }));
+              } catch (error: any) { callback({ status: "INVALID_PROPOSAL", applied: false, error: error?.message }); }
+              return;
+            }
+            try {
+              const { data } = await axios.post("/production/storyboard/replaceStoryboard", {
+                scriptId: token.scriptId,
+                projectId: token.projectId,
+                data: payload.items,
+              });
+              if (isCurrentUnit(token)) {
+                flowData.value.storyboard = data;
+                try { await setFlowData(token.scriptId, token); }
+                catch (saveError: any) {
+                  return callback?.({ success: true, applied: true, scopeChanged: !isCurrentUnit(token),
+                    workspaceSyncError: saveError?.message || "工作区保存失败",
+                    message: "原制作单元的分镜替换已应用；工作区保存失败，请刷新核对", data });
+                }
+              }
+              const scopeChanged = !isCurrentUnit(token);
+              callback?.({ success: true, applied: true, scopeChanged,
+                message: scopeChanged ? "已应用到原制作单元；当前界面已切换，未更新当前工作区" : `已替换为 ${data.length} 条分镜`, data });
+            } catch (e: any) {
+              callback?.({ success: false, applied: false, error: e?.message || "整套替换分镜失败" });
+            }
           });
         }
       },
       { immediate: true },
     );
 
-    async function setFlowData(scriptId?: number) {
-      await axios.post("/production/saveFlowData", {
-        projectId: projectId,
-        data: flowData.value,
-        episodesId: scriptId || episodesId.value,
-      });
+    async function setFlowData(scriptId?: number, scheduled: UnitToken | null = captureUnit()) {
+      if (!isCurrentUnit(scheduled) || (scriptId && scriptId !== scheduled.scriptId)) return;
+      try {
+        await axios.post("/production/saveFlowData", {
+          projectId: scheduled.projectId,
+          data: JSON.parse(JSON.stringify(flowData.value)),
+          episodesId: scheduled.scriptId,
+        });
+      } catch (error: any) {
+        if (isCurrentUnit(scheduled)) window.$message.error(error?.message || "工作区保存失败，分镜语义修订须经人工确认");
+        throw error;
+      }
     }
 
     async function getFlowData() {
+      const token = captureUnit();
+      if (!token) return;
       const { data } = await axios.post("/production/getFlowData", {
-        projectId: projectId,
-        episodesId: episodesId.value,
+        projectId: token.projectId,
+        episodesId: token.scriptId,
       });
-      flowData.value = data;
+      if (isCurrentUnit(token)) flowData.value = data;
     }
     async function batchGenerateStoryboard(allIds: number[], compulsory: boolean = false) {
+      const token = captureUnit();
+      if (!token) return;
       try {
         const { data } = await axios.post("/production/storyboard/batchGenerateImage", {
-          scriptId: episodesId.value,
-          projectId: projectId,
+          scriptId: token.scriptId,
+          projectId: token.projectId,
           storyboardIds: allIds,
           concurrentCount: settingStore().otherSetting.assetsBatchGenereateSize,
           compulsory,
         });
-        if (data) {
+        if (data && isCurrentUnit(token)) {
           if (flowData.value.storyboard.length === 0) {
             flowData.value.storyboard = data;
             return data;
@@ -249,17 +364,23 @@ function makeProductionAgentStore(projectId: string) {
               const findData = data.find((i: any) => i.id == item.id);
               if (findData) {
                 item.state = findData.state;
-                item.src = findData.src;
+                if (!findData.attemptId || findData.src) item.src = findData.src;
+                if (findData.attemptId) item.imageProvenance = { ...(item.imageProvenance ?? {
+                  freshness: item.src ? "LEGACY" : "NONE", currentAttemptId: null, producerType: null, producerRef: null,
+                  sourceHash: null, staleCode: null, staleReason: null, latestAttemptStatus: null,
+                }), activeAttemptId: findData.attemptId, latestAttemptStatus: "RUNNING" };
               }
             });
           }
         }
         return data;
       } catch (e) {
-        window.$message.error((e as any)?.message);
+        throw e;
       }
     }
     async function batchGenerateAssets(allIds: number[]) {
+      const token = captureUnit();
+      if (!token) return;
       flowData.value.assets.forEach((asset) => {
         if (asset.derive) {
           asset.derive.forEach((derive) => {
@@ -272,11 +393,11 @@ function makeProductionAgentStore(projectId: string) {
       try {
         const { data } = await axios.post("/production/assets/batchGenerateAssetsImage", {
           assetIds: allIds,
-          projectId: projectId,
-          scriptId: episodesId.value,
+          projectId: token.projectId,
+          scriptId: token.scriptId,
           concurrentCount: settingStore().otherSetting.assetsBatchGenereateSize,
         });
-        if (data) {
+        if (data && isCurrentUnit(token)) {
           data.forEach((record: { id: number; state: "未生成" | "生成中" | "已完成" | "生成失败"; src: string }) => {
             flowData.value.assets.forEach((asset) => {
               if (asset.derive) {
@@ -320,6 +441,8 @@ function makeProductionAgentStore(projectId: string) {
     let assetsPollingInFlight = false;
 
     async function pollAssetsImages() {
+      const token = captureUnit();
+      if (!token) return;
       const ids = assetsNotStateImageIds.value;
       if (ids.length === 0 || assetsPollingInFlight) return;
       assetsPollingInFlight = true;
@@ -327,7 +450,7 @@ function makeProductionAgentStore(projectId: string) {
         const { data } = await axios.post("/production/assets/pollingImage", {
           ids: ids,
         });
-        if (!data || data.length === 0) return;
+        if (!isCurrentUnit(token) || !data || data.length === 0) return;
         const records = data as Array<{ id: number; state: string; src?: string; errorReason?: string; prompt?: string }>;
         records.forEach((record) => {
           flowData.value.assets.forEach((asset) => {
@@ -385,6 +508,8 @@ function makeProductionAgentStore(projectId: string) {
     let storyboardPollingInFlight = false;
 
     async function pollStoryboardImages() {
+      const token = captureUnit();
+      if (!token) return;
       const ids = storyboardNotStateImageIds.value;
       if (ids.length === 0 || storyboardPollingInFlight) return;
       storyboardPollingInFlight = true;
@@ -392,8 +517,12 @@ function makeProductionAgentStore(projectId: string) {
         const { data } = await axios.post("/production/storyboard/pollingImage", {
           ids: ids,
         });
-        if (!data || data.length === 0) return;
+        if (!isCurrentUnit(token) || !data || data.length === 0) return;
         const records = data as Array<{ id: number; state: string; src?: string; reason?: string }>;
+        // Polling omits Attempt provenance. Refresh once for this terminal batch
+        // while the local shot still records the active controlled attempt.
+        const refreshAttemptProvenance = records.some((record) => record.state !== "生成中" &&
+          flowData.value.storyboard.some((item) => item.id === record.id && !!item.imageProvenance?.activeAttemptId));
         records.forEach((record) => {
           const item = flowData.value.storyboard.find((s) => s.id === record.id);
           if (item) {
@@ -402,6 +531,7 @@ function makeProductionAgentStore(projectId: string) {
             item.reason = record?.reason ?? "";
           }
         });
+        if (refreshAttemptProvenance) await getFlowData();
       } catch (e) {
         console.error("[storyboardPolling] error", e);
       } finally {
@@ -450,36 +580,28 @@ function makeProductionAgentStore(projectId: string) {
       if (!connected.value) connect();
       socket.value!.emit("updateContext", ctx);
     }
-    async function addStoryboardInfo(items: any[]) {
+    async function addStoryboardInfo(items: any[], token: UnitToken) {
+      if (!isCurrentUnit(token)) return { dispatched: false, data: null, current: false };
       const { data } = await axios.post("/production/storyboard/batchAddStoryboardInfo", {
-        scriptId: episodesId.value,
+        scriptId: token.scriptId,
         data: items,
-        projectId: projectId,
+        projectId: token.projectId,
       });
-
-      flowData.value.storyboard.forEach((item) => {
-        const updated = data.find((d: Storyboard) => d.prompt == item.prompt && d.duration == item.duration && d.videoDesc == item.videoDesc);
-        if (updated) {
-          item.id = updated.id;
-          item.trackId = updated.trackId;
-          item.src = updated.src;
-          item.state = updated.state;
-          item.associateAssetsIds = updated.associateAssetsIds;
-        }
-      });
+      return { dispatched: true, data, current: isCurrentUnit(token) };
     }
 
     const loadingHistory = ref(false);
     async function getHistory() {
+      const token = captureUnit();
+      if (!token) return;
       loadingHistory.value = true;
       const { data } = await axios.post(`/agents/getMemory`, {
-        projectId: projectId,
-        episodesId: episodesId.value,
+        projectId: token.projectId,
+        episodesId: token.scriptId,
         agentType: "productionAgent",
       });
-      messages.value = [];
-      messages.value = [...defMsg, ...data];
-      loadingHistory.value = false;
+      if (isCurrentUnit(token)) messages.value = [...defMsg.value, ...data];
+      if (isCurrentUnit(token)) loadingHistory.value = false;
     }
 
     const thinkLevel = ref(0);
@@ -502,6 +624,10 @@ function makeProductionAgentStore(projectId: string) {
       setFlowData,
       getFlowData,
       episodesId,
+      unitGeneration,
+      captureUnit,
+      isCurrentUnit,
+      invalidateUnit,
       stopAssetsPolling,
       stopStoryboardPolling,
       updateContext,

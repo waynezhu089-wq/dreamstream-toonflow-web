@@ -75,6 +75,7 @@
 
 <script setup lang="ts">
 import axios from "@/utils/axios";
+import { currentAdvertisementUnit, advertisementLocation } from "@/utils/advertisementUnit";
 import setting from "@/components/setting/index.vue";
 import hello from "@/components/hello.vue";
 import projectStore from "@/stores/project";
@@ -88,7 +89,7 @@ const menuList = ref([
   // { type: "divider" },
 ]);
 
-const rightBtnList = ref([
+const legacyRightBtnList = [
   { type: "btn", path: "/novel", labelKey: "workbench.menu.novel", icon: "i-notebook", nodelOnly: true },
   { type: "btn", path: "/scriptAgent", labelKey: "workbench.menu.scriptAgent", icon: "i-color-filter", nodelOnly: true },
   { type: "btn", path: "/script", labelKey: "workbench.menu.scriptManage", icon: "i-document-folder" },
@@ -96,7 +97,16 @@ const rightBtnList = ref([
   { type: "btn", path: "/production", labelKey: "workbench.menu.production", icon: "i-carousel-video" },
   { type: "divider" },
   { type: "btn", path: "/assets", labelKey: "workbench.menu.assetCenter", icon: "i-receive" },
-]);
+];
+
+const advertisementRightBtnList = [
+  { type: "btn", path: "/assets", labelKey: "workbench.menu.adAssetPrep", icon: "i-receive" },
+  { type: "btn", path: "/cornerScape", labelKey: "workbench.menu.adAssetBuild", icon: "i-peoples-two" },
+  { type: "btn", path: "/production", labelKey: "workbench.menu.adProduction", icon: "i-carousel-video" },
+];
+
+const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
+const rightBtnList = computed(() => (isAdvertisement.value ? advertisementRightBtnList : legacyRightBtnList));
 
 const router = useRouter();
 const route = useRoute();
@@ -109,9 +119,31 @@ watch(
   },
 );
 
-function handleClick(menu: any) {
+async function handleClick(menu: any) {
   if (menu.needProject && !project.value) return;
-  router.push(menu.path);
+
+  if (isAdvertisement.value && menu.path === "/production" && project.value?.id) {
+    const projectId = Number(project.value.id);
+    const scriptId = currentAdvertisementUnit(projectId, route.query.scriptId);
+    if (!scriptId) { await router.push("/assets"); return; }
+    try {
+      const { data } = await axios.post("/project/advertisement/getWorkflowState", {
+        projectId, scriptId,
+      });
+      if (Number(project.value?.id) !== projectId || currentAdvertisementUnit(projectId, route.query.scriptId) !== scriptId) return;
+      if (data.ready !== true || data.scriptId !== scriptId || data.projectId !== projectId) {
+        window.$message.warning($t("workbench.menu.adProductionBlocked"));
+        router.push(advertisementLocation("/assets", projectId, scriptId));
+        activeMenu.value = "/assets";
+        return;
+      }
+    } catch (e: any) {
+      window.$message.error(e?.message || $t("workbench.menu.adWorkflowCheckFailed"));
+      return;
+    }
+  }
+
+  router.push(isAdvertisement.value && ["/assets", "/cornerScape", "/production"].includes(menu.path) ? advertisementLocation(menu.path, project.value?.id, route.query.scriptId) : menu.path);
   activeMenu.value = menu.path;
 }
 

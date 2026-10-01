@@ -427,7 +427,12 @@
       "assetCenter": "アセットセンター",
       "settings": "設定",
       "jumpGithub": "Githubにジャンプ",
-      "feedbackQuestions": "フィードバックの質問"
+      "feedbackQuestions": "フィードバックの質問",
+      "adAssetPrep": "広告アセット準備",
+      "adAssetBuild": "アセット生成",
+      "adProduction": "広告制作",
+      "adProductionBlocked": "先に広告アセットの準備と確認を完了してください",
+      "adWorkflowCheckFailed": "広告ワークフロー状態の確認に失敗しました"
     },
     "project": {
       "title": "マイプロジェクト",
@@ -480,6 +485,11 @@
           "title": "即効性のある言葉"
         },
         "basedOnScript": "脚本に基づいて",
+        "basedOnGeneralVideo": "汎用動画",
+        "productionProfile": "制作タイプ",
+        "advertisement": "広告動画",
+        "projectIntro": "プロジェクト概要",
+        "projectIntroPh": "広告/動画プロジェクトの概要またはBriefを入力してください",
         "mdFile": "ビジュアルマニュアルファイル",
         "directorManual": "ディレクターズハンドブック",
         "addDirectorManual": "新しいディレクターマニュアル",
@@ -494,6 +504,7 @@
       "msg": {
         "fetchFailed": "プロジェクトリストの取得に失敗しました",
         "notFound": "プロジェクトが見つかりません！",
+        "generalVideoInitFailed": "汎用動画の制作単位の初期化に失敗しました",
         "editSuccess": "プロジェクトを編集しました",
         "editFailed": "プロジェクトの編集に失敗しました",
         "addSuccess": "プロジェクトを新規作成しました",
@@ -537,7 +548,9 @@
       },
       "type": {
         "novel": "原作小説に基づいて",
-        "script": "小説の脚本に基づく"
+        "script": "小説の脚本に基づく",
+        "generalVideo": "汎用動画",
+        "advertisement": "広告動画"
       }
     },
     "novel": {
@@ -961,7 +974,19 @@
       },
       "confirmCancellation": "キャンセルの確認",
       "confirmAgain": "キャンセルを確認しますか?キャンセル後も、バックエンド AI は控除を要求し続けます。",
-      "sure": "もちろん"
+      "sure": "もちろん",
+      "adWorkflow": {
+        "title": "広告アセット準備",
+        "desc": "実素材と基本人物・シーンアセットを先に準備し、利用可能であることを確認してから広告制作へ進みます。",
+        "assetProgress": "準備済み {ready}/{total}",
+        "incomplete": "未完了アセット {count} 件",
+        "assetsReady": "利用可能な素材があります",
+        "goAssetGeneration": "アセット生成へ",
+        "confirmAndContinue": "アセット準備を確認して広告制作へ",
+        "stateFailed": "広告アセット状態の取得に失敗しました",
+        "confirmed": "アセット準備を確認しました",
+        "confirmFailed": "アセット準備の確認に失敗しました"
+      }
     },
     "production": {
       "selectPlaceholder": "エピソードを選択してください",
@@ -969,7 +994,9 @@
       "node": {
         "script": {
           "title": "シナリオ",
-          "editDialog": "シナリオの編集"
+          "editDialog": "シナリオの編集",
+          "adTitle": "広告 Brief",
+          "adEditDialog": "広告 Brief を編集"
         },
         "scriptPlan": {
           "title": "撮影プラン",
@@ -996,14 +1023,16 @@
           "notGenerated": "未生成",
           "originalAsset": "元のアセット",
           "derived": "派生",
-          "noDerivedAssets": "派生アセットなし"
+          "noDerivedAssets": "派生アセットなし",
+          "adTitle": "広告アセット"
         },
         "poster": {
           "title": "動画カバー",
           "coverCount": "{count} 枚"
         },
         "workbench": {
-          "title": "動画ワークベンチ"
+          "title": "動画ワークベンチ",
+          "adTitle": "広告仕上げワークベンチ"
         }
       },
       "editImage": {
@@ -1055,7 +1084,10 @@
         "confirmClear": "メモリのクリア",
         "confirmClearBody": "{type}をクリアしてもよろしいですか？",
         "confirmClearBtn": "クリアを確定",
-        "memoryCleared": "{type}をクリアしました"
+        "memoryCleared": "{type}をクリアしました",
+        "adWelcomeMessage": "広告制作アシスタントです。アセット準備 Gate を通過したので、通常の広告制作工程に沿って演出計画、絵コンテ、レビュー、生成準備を進めます。",
+        "adStartPlanning": "広告企画を開始",
+        "adStartPlanningPrompt": "広告 Brief と確認済みアセットを基に、通常の広告制作工程で演出計画を開始してください。目的、対象、媒体、尺、主要訴求、アセットを確認してから絵コンテへ進み、工程を飛ばさないでください。"
       },
       "wb": {
         "quickPreview": "クイックプレビュー",
@@ -1306,7 +1338,9 @@
       "autoLayoutTB": "自動写植上下レイアウト",
       "getFlowData": "ワークスペースを更新する",
       "confirm": "エピソード切り替え確認",
-      "confirmEpisodesSwitch": "現在のタスクはまだ進行中です。エピソードを切り替えるとセッションが再接続されます。切り替えを続けますか?"
+      "confirmEpisodesSwitch": "現在のタスクはまだ進行中です。エピソードを切り替えるとセッションが再接続されます。切り替えを続けますか?",
+      "guideSwitchProductionUnit": "制作単位を切替",
+      "guideSwitchProductionUnitBody": "ここで現在の広告制作単位を切り替えます。"
     },
     "task": {
       "title": "タスクリスト",

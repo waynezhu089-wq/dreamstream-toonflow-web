@@ -28,7 +28,12 @@
           <memoryConfig v-if="activeMenu === 'memoryConfig'" />
           <fileManagement v-if="activeMenu === 'fileManagement'" />
           <skillManagement v-if="activeMenu === 'skillManagement'" />
+          <SkillLibrary v-if="activeMenu === 'skillLibrary'" />
           <devConfig v-if="activeMenu === 'devConfig'" />
+          <ModelPresets v-if="activeMenu === 'modelPresets'" />
+          <CapabilityLibrary v-if="activeMenu === 'capabilityLibrary'" />
+          <ProductionProfileLibrary v-if="activeMenu === 'productionProfiles'" />
+          <RecipeLibrary v-if="activeMenu === 'recipeLibrary'" />
           <modelMap v-if="activeMenu === 'modelMap'" />
         </div>
       </div>
@@ -55,16 +60,26 @@ import fileManagement from "./components/fileManagement.vue";
 import skillManagement from "./components/skillManagement.vue";
 import devConfig from "./components/devConfig.vue";
 import promptManage from "./components/promptManage.vue";
+import ModelPresets from "@/components/ModelPresets.vue";
+import CapabilityLibrary from "@/components/CapabilityLibrary.vue";
+import SkillLibrary from "@/components/SkillLibrary.vue";
+import ProductionProfileLibrary from "@/components/ProductionProfileLibrary.vue";
+import RecipeLibrary from "@/components/RecipeLibrary.vue";
 import modelMap from "./components/modelMap.vue";
 
 const menuItems = [
+  { key: "skillLibrary", label: "Skill Library", icon: "i-ring" },
+  { key: "capabilityLibrary", label: "Capability Library", icon: "i-api" },
+  { key: "productionProfiles", label: "Production Profiles", icon: "i-list" },
+  { key: "recipeLibrary", label: "Recipe Library", icon: "i-list" },
+  { key: "modelPresets", label: "模型预设", icon: "i-computer" },
   { key: "ui", label: "settings.menu.ui", icon: "i-theme" },
   { key: "language", label: "settings.menu.language", icon: "i-translate" },
   { key: "vendorConfig", label: "settings.menu.vendorConfig", icon: "i-computer" },
   { key: "modelMap", label: "settings.menu.modelMap", icon: "i-computer" },
   { key: "agentConfog", label: "settings.menu.agentConfig", icon: "i-color-filter" },
   { key: "promptManage", label: "settings.menu.promptManage", icon: "i-tips" },
-  { key: "skillManagement", label: "settings.menu.skillsSkillsManagement", icon: "i-ring" },
+  { key: "skillManagement", label: "Legacy / Advanced Raw Skill Editor", icon: "i-ring" },
   { key: "memoryConfig", label: "settings.menu.memoryConfig", icon: "i-memory-card-one" },
   { key: "loginConfig", label: "settings.menu.loginConfig", icon: "i-lock" },
   { key: "dbConfig", label: "settings.menu.dbConfig", icon: "i-data" },

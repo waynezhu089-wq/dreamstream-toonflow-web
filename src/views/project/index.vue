@@ -23,7 +23,7 @@
           </div>
           <div>
             <t-tag shape="round">
-              {{ project.projectType == "novel" ? $t(`workbench.project.type.novel`) : $t(`workbench.project.type.script`) }}
+              {{ getProjectTypeLabel(project) }}
             </t-tag>
           </div>
         </div>
@@ -36,6 +36,8 @@
             <span>{{ dayjs(project?.createTime).format("YYYY-MM-DD HH:mm:ss") }}</span>
           </div>
           <div class="actionBtns f ac">
+            <t-button v-if="project.projectType === 'general_video' && project.type === 'advertisement'" size="small" variant="text" @click.stop="skillProjectId = Number(project.id)">使用 Skill</t-button>
+            <t-button v-if="project.projectType === 'general_video'" size="small" variant="text" @click.stop="recipeProjectId = Number(project.id)">Recipe</t-button>
             <div class="editBtn" @click.stop="openEdit(project)">
               <i-edit :size="18" />
             </div>
@@ -48,12 +50,17 @@
     </div>
   </div>
   <projectDialog v-model="dialogShow" :projectData="editProjectData" @add="addProjectFn" @edit="editProjectFn" />
+  <ProjectSkillPicker v-if="skillProjectId" :project-id="skillProjectId" @close="skillProjectId = null" />
+  <ProjectRecipePicker v-if="recipeProjectId" :project-id="recipeProjectId" @close="recipeProjectId = null" />
 </template>
 
 <script setup lang="ts">
 import projectDialog from "./components/projectDialog.vue";
+import ProjectSkillPicker from "@/components/ProjectSkillPicker.vue";
+import ProjectRecipePicker from "@/components/ProjectRecipePicker.vue";
 import dayjs from "dayjs";
 import axios from "@/utils/axios";
+import { currentAdvertisementUnit, selectAdvertisementUnit, advertisementLocation } from "@/utils/advertisementUnit";
 import projectStore from "@/stores/project";
 import imageListCacheStore from "@/stores/imageListCache";
 
@@ -61,6 +68,8 @@ const { clearProjectCache } = imageListCacheStore();
 const { allProject, project } = storeToRefs(projectStore());
 
 const dialogShow = ref(false);
+const skillProjectId = ref<number | null>(null);
+const recipeProjectId = ref<number | null>(null);
 const editProjectData = ref<{
   id: string;
   name: string;
@@ -94,18 +103,19 @@ async function openProject(projectId: string | undefined) {
 
   if (!item) return window.$message.error($t("workbench.project.msg.notFound"));
 
-  if (!item.imageModel || !item.videoModel) {
+  const advertisement = item.projectType === "general_video" && item.type === "advertisement";
+  if (!advertisement && (!item.imageModel || !item.videoModel)) {
     window.$message.warning($t("workbench.project.msg.modelProviderDisabled"));
     return openEdit(item);
   }
 
   try {
-    if (item.imageModel) {
+    if (!advertisement && item.imageModel) {
       await axios.post("/modelSelect/getModelDetail", {
         modelId: item.imageModel,
       });
     }
-    if (item.videoModel) {
+    if (!advertisement && item.videoModel) {
       await axios.post("/modelSelect/getModelDetail", {
         modelId: item.videoModel,
       });
@@ -116,8 +126,63 @@ async function openProject(projectId: string | undefined) {
   }
 
   project.value = item;
-  if (item.projectType === "novel") router.push(`/novel`);
-  else if (item.projectType === "script") router.push(`/script`);
+  if (item.projectType === "novel") {
+    router.push(`/novel`);
+  } else if (item.projectType === "script") {
+    router.push(`/script`);
+  } else if (item.projectType === "general_video") {
+    try {
+      const unit = await ensureGeneralVideoProductionUnit(item);
+      if (project.value?.id !== item.id) return;
+      if (item.type === "advertisement") {
+        if (!unit) { await router.push("/assets"); return; }
+        selectAdvertisementUnit(item.id, unit.id);
+        const { data: workflow } = await axios.post("/project/advertisement/getWorkflowState", {
+          projectId: Number(item.id), scriptId: Number(unit.id),
+        });
+        if (project.value?.id !== item.id) return;
+        router.push(advertisementLocation(workflow.ready === true && workflow.scriptId === unit.id ? "/production" : "/assets", item.id, unit.id));
+      } else {
+        router.push("/production");
+      }
+    } catch (error: any) {
+      window.$message.error(error?.message ?? $t("workbench.project.msg.generalVideoInitFailed"));
+    }
+  }
+}
+
+function getProjectTypeLabel(item: { projectType: string; type?: string }) {
+  if (item.projectType === "novel") return $t("workbench.project.type.novel");
+  if (item.projectType === "general_video" && item.type === "advertisement") return $t("workbench.project.type.advertisement");
+  if (item.projectType === "general_video") return $t("workbench.project.type.generalVideo");
+  return $t("workbench.project.type.script");
+}
+
+async function ensureGeneralVideoProductionUnit(item: {
+  id: string;
+  name: string;
+  intro: string;
+  type: string;
+}) {
+  const projectId = Number(item.id);
+  const { data: scripts } = await axios.post("/script/getScrptApi", { projectId });
+  if (Array.isArray(scripts) && scripts.length > 0) {
+    if (item.type === "advertisement") return scripts.find((unit: any) => unit.id === currentAdvertisementUnit(projectId)) ?? (scripts.length === 1 ? scripts[0] : null);
+    return scripts[0];
+  }
+
+  await axios.post("/script/addScript", {
+    projectId,
+    name: `${item.name} - ${$t("workbench.project.type.advertisement")}`,
+    content: item.intro || item.name,
+    assets: [],
+  });
+
+  const { data: createdScripts } = await axios.post("/script/getScrptApi", { projectId });
+  if (!Array.isArray(createdScripts) || createdScripts.length === 0) {
+    throw new Error($t("workbench.project.msg.generalVideoInitFailed"));
+  }
+  return createdScripts[0];
 }
 
 function openEdit(item: {
@@ -150,6 +215,7 @@ function editProjectFn(data: {
   videoRatio: string;
   imageModel: string;
   videoModel: string;
+  projectType: string;
   imageQuality: "1K" | "2K" | "4K" | "";
   mode: string;
 }) {

@@ -268,6 +268,9 @@ async function getGenerateData() {
   });
 
   storyboardList.value = data.storyboardList;
+  if (data.effectiveVideoModel && modelParmas.value.model !== data.effectiveVideoModel) {
+    modelParmas.value.model = data.effectiveVideoModel;
+  }
   // 优先使用本地缓存，没有缓存则用后端数据并写入缓存
   const pid = project.value?.id;
   const sid = episodesId.value;

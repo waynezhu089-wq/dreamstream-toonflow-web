@@ -28,7 +28,10 @@ instance.interceptors.response.use(
       router.push("/login");
       MessagePlugin.error(window.$t("common.sessionExpired"));
     }
-    if (error.message.includes("Network Error") || error.response.data?.message === "Network Error") {
+    const isNetworkError =
+      error?.message?.includes?.("Network Error") ||
+      error?.response?.data?.message === "Network Error";
+    if (isNetworkError) {
       NotifyPlugin.error({
         title: "Network Error",
         closeBtn: true,

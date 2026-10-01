@@ -57,6 +57,10 @@ interface TrackItem {
 
 interface VideoItem {
   id: number;
+  candidateStatus?: "GENERATING" | "FAILED" | "UNRESOLVED" | "RETIRED" | "STALE" | "SELECTION_ELIGIBLE";
+  selectionEligible?: boolean;
+  workGuardState?: string | null;
+  retired?: boolean;
   src: string;
   state: "未生成" | "生成中" | "已完成" | "生成失败";
   errorReason?: string | null;
@@ -86,6 +90,10 @@ interface TrackMediaUnknown extends TrackMediaBase {
 type TrackMedia = TrackMediaStoryboard | TrackMediaAssets | TrackMediaUnknown;
 
 interface HistoryVideoItem {
+  candidateStatus?: "GENERATING" | "FAILED" | "UNRESOLVED" | "RETIRED" | "STALE" | "SELECTION_ELIGIBLE";
+  selectionEligible?: boolean;
+  workGuardState?: string | null;
+  retired?: boolean;
   errorReason?: string | null;
   src: string;
   id: number;

@@ -1,5 +1,6 @@
 <template>
-  <div class="assets">
+  <AdvertisementAssetPlan v-if="isAdvertisement && !props.selectorMode" :key="String(project?.id)" :projectId="Number(project?.id)" />
+  <div v-else class="assets">
     <div class="data">
       <t-tabs v-model="assetOptions" @change="selectAssetOptions">
         <t-tab-panel v-for="(item, index) in themeData" :key="index" :value="item.value">
@@ -379,8 +380,9 @@
       v-model="addAssetsShow"
       :type="assetOptions"
       :title="tabNameMap[assetOptions]"
+      :scriptId="advertisementScriptId"
       :formData="formData"
-      @getFilteredData="getFilteredData(assetOptions)" />
+      @getFilteredData="handleAssetsChanged" />
     <generateImage v-model="generateImageShow" @update="loadCurrentTabData" :formData="currentAssetData" />
 
     <addAudioAssets v-model="addAudioShow" v-if="addAudioShow" :formData="audioFormData" @getFilteredData="getFilteredData(assetOptions)" />
@@ -433,6 +435,8 @@
 
 <script setup lang="ts">
 import dayjs from "dayjs";
+import AdvertisementAssetPlan from "./advertisement/AdvertisementAssetPlan.vue";
+import { currentAdvertisementUnit } from "@/utils/advertisementUnit";
 import modelSelect from "@/components/modelSelect.vue";
 import { useFileDialog } from "@vueuse/core";
 import axios from "@/utils/axios";
@@ -443,6 +447,11 @@ import generateImage from "./components/generateImage.vue";
 import projectStore from "@/stores/project";
 import settingStore from "@/stores/setting";
 const { otherSetting } = storeToRefs(settingStore());
+const { project } = storeToRefs(projectStore());
+const router = useRouter();
+const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
+const route = useRoute();
+const advertisementScriptId = computed(() => isAdvertisement.value ? currentAdvertisementUnit(project.value?.id, route.query.scriptId) : null);
 
 const props = withDefaults(
   defineProps<{
@@ -468,16 +477,14 @@ const audioFormData = ref({
   sex: "",
 });
 
-onMounted(() => {
-  loadCurrentTabData();
+onMounted(async () => {
+  if (!isAdvertisement.value || props.selectorMode) await loadCurrentTabData();
 });
 
 onUnmounted(() => {
   stopPolling();
   stopImagePolling();
 });
-
-const { project } = storeToRefs(projectStore());
 
 const allThemeData = [
   {
@@ -585,6 +592,10 @@ async function getFilteredData(type: string) {
     loading.value = false;
   }
 }
+async function handleAssetsChanged() {
+  await getFilteredData(assetOptions.value);
+}
+
 // 加载当前标签的数据
 async function loadCurrentTabData() {
   let type = "";
@@ -637,11 +648,13 @@ async function handleAdd(type: string) {
       const base64 = reader.result as string;
       await axios.post("/assets/uploadClip", {
         projectId: project.value?.id,
+        scriptId: advertisementScriptId.value ?? undefined,
         base64Data: base64,
         name: file.name,
       });
       window.$message.success($t("workbench.assets.uploadSuccess"));
-      getFilteredData(assetOptions.value);
+      await getFilteredData(assetOptions.value);
+      if (isAdvertisement.value) await refreshAdvertisementWorkflow();
     };
     reader.readAsDataURL(file);
   } else if (type == "audio") {
@@ -1323,6 +1336,46 @@ async function getBigImageUrl(row: Asset, fn: Function) {
 </script>
 
 <style lang="scss" scoped>
+.adWorkflowGate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--td-brand-color-3);
+  border-radius: 12px;
+  background: var(--td-brand-color-1);
+
+  .adWorkflowInfo {
+    min-width: 0;
+  }
+
+  .adWorkflowTitle {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--td-text-color-primary);
+  }
+
+  .adWorkflowDesc {
+    margin-top: 4px;
+    color: var(--td-text-color-secondary);
+  }
+
+  .adWorkflowStats {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+
+  .adWorkflowActions {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+}
+
 .assets {
   height: 100%;
   display: flex;

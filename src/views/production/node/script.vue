@@ -1,7 +1,7 @@
 <template>
   <t-card class="script">
     <div class="titleBar dragHandle pr">
-      <div class="title c">{{ $t("workbench.production.node.script.title") }}</div>
+      <div class="title c">{{ isAdvertisement ? $t("workbench.production.node.script.adTitle") : $t("workbench.production.node.script.title") }}</div>
       <t-button size="small" variant="text" @click="openEdit">{{ $t("workbench.production.edit") }}</t-button>
       <Handle :id="props.handleIds.source" type="source" :position="Position.Right" style="right: calc(-1 * var(--td-comp-paddingLR-xl))" />
     </div>
@@ -13,7 +13,7 @@
 
   <t-dialog
     v-model:visible="dialogVisible"
-    :header="$t('workbench.production.node.script.editDialog')"
+    :header="isAdvertisement ? $t('workbench.production.node.script.adEditDialog') : $t('workbench.production.node.script.editDialog')"
     :width="'90vw'"
     :confirm-btn="$t('workbench.production.save')"
     :cancel-btn="$t('workbench.production.cancel')"
@@ -42,6 +42,10 @@ import { MdEditor, MdPreview } from "md-editor-v3";
 import type { ToolbarNames } from "md-editor-v3";
 import settingStore from "@/stores/setting";
 import productionAgentStore from "@/stores/productionAgent";
+import projectStore from "@/stores/project";
+const { project } = storeToRefs(projectStore());
+const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
+
 const { themeSetting } = storeToRefs(settingStore());
 
 const props = defineProps<{

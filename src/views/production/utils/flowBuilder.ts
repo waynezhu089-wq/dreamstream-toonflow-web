@@ -1,3 +1,4 @@
+import type { StoryboardProduction } from "@/utils/storyboardProduction";
 import type { Ref } from "vue";
 import { computed } from "vue";
 
@@ -41,10 +42,22 @@ export interface AssetItem {
   errorReason?: string;
 }
 
-export interface Storyboard {
+export interface Storyboard extends StoryboardProduction {
+  imageProvenance?: {
+    freshness: "NONE" | "LEGACY" | "CURRENT" | "STALE";
+    currentAttemptId: string | null;
+    activeAttemptId: string | null;
+    producerType: string | null;
+    producerRef: string | null;
+    sourceHash: string | null;
+    staleCode: string | null;
+    staleReason: string | null;
+    latestAttemptStatus: string | null;
+  };
   id?: number;
   duration?: number;
   prompt: string;
+  imagePrompt?: string | null;
   trackId?: number;
   associateAssetsIds?: number[];
   src: string | null;

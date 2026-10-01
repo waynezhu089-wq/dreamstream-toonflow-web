@@ -1,5 +1,5 @@
 <template>
-  <t-card :title="'#' + (activeTrackIndex + 1) + $t('workbench.generate.videoMenu')" header-bordered style="height: 100%" class="fc">
+  <t-card :title="'#' + (activeTrackIndex + 1) + $t('workbench.generate.videoMenu')" header-bordered style="height: 100%">
     <template #actions>
       <t-button size="small" :loading="generating" @click="emit('generate')">{{ $t("workbench.generate.generate") }}</t-button>
     </template>
@@ -46,10 +46,10 @@
               {{ $t("workbench.generate.generateFailed") }}
             </t-tag>
           </t-tooltip>
-          <div v-if="v.state !== '生成中'" class="selectBtn" @click.stop="selectVideo(v)">
+          <div v-if="canAccept(v)" class="selectBtn" @click.stop="selectVideo(v)">
             <i-check size="16" />
           </div>
-          <div class="delBtn" @click.stop="handleDeleteVideo(v)">
+          <div v-if="!v.retired" class="delBtn" @click.stop="handleDeleteVideo(v)">
             <i-delete size="16" />
           </div>
           <div v-if="v.state !== '生成中' && v.state !== '生成失败'" class="download" @click.stop="downloadVideo(v)">
@@ -81,6 +81,7 @@
 import type { Ref } from "vue";
 import axios from "@/utils/axios";
 import projectStore from "@/stores/project";
+import { v4 as uuidv4 } from "uuid";
 
 const props = defineProps<{
   activeTrackIndex: number;
@@ -97,25 +98,52 @@ const emit = defineEmits<{
 const { project } = storeToRefs(projectStore());
 const episodesId = inject<Ref<number>>("episodesId")!;
 
-const selectVideoId = ref();
+const selectVideoId = computed(() => currentTrack.value?.selectVideoId);
+const acceptCommandIds = new Map<string, string>();
+
+function clearAcceptCommandIdsForTrack(trackId: number) {
+  const prefix = `${trackId}:`;
+  for (const key of acceptCommandIds.keys()) {
+    if (key.startsWith(prefix)) acceptCommandIds.delete(key);
+  }
+}
+
 const videoCoverMap = ref<Record<string, string>>({});
 const videoPlayerVisible = ref(false);
 const playingVideoSrc = ref<string>();
 
-/** 选中历史视频并同步到后端 */
+function canAccept(v: HistoryVideoItem) {
+  if (v.state === "生成中" || v.state === "生成失败" || v.retired) return false;
+  return v.selectionEligible !== false;
+}
+
+/** Accept 候选视频；无 HTTP response 的 transport retry 复用同一 acceptanceId。 */
 async function selectVideo(v: HistoryVideoItem) {
-  if (v.state === "生成中" || v.state === "生成失败") return;
+  if (!canAccept(v) || currentTrack.value?.id == null) return;
+  const trackId = currentTrack.value.id;
+  const key = `${trackId}:${v.id}`;
+  const acceptanceId = acceptCommandIds.get(key) ?? uuidv4();
+  acceptCommandIds.set(key, acceptanceId);
   try {
     await axios.post("/production/workbench/selectVideo", {
       projectId: project.value?.id,
       scriptId: episodesId.value ?? 0,
       videoId: v.id,
-      trackId: currentTrack?.value.id,
+      trackId,
+      acceptanceId,
+      reason: null,
     });
+    // A definite server response reconciles this track. Any older transport-ambiguous
+    // command IDs on sibling candidates are no longer valid for a future intentional click.
+    clearAcceptCommandIdsForTrack(trackId);
     window.$message.success($t("workbench.generate.selectVideoSuccess"));
     emit("refresh");
-  } catch {
-    window.$message.error($t("workbench.generate.selectVideoFailed"));
+  } catch (error: any) {
+    // axios wrapper returns HTTP response.data directly, while a transport failure remains AxiosError.
+    // Only an ambiguous transport failure keeps the command id for safe retry.
+    const transportUncertain = error?.name === "AxiosError" && !error?.response;
+    if (!transportUncertain) acceptCommandIds.delete(key);
+    window.$message.error(error?.message ?? $t("workbench.generate.selectVideoFailed"));
   }
 }
 
