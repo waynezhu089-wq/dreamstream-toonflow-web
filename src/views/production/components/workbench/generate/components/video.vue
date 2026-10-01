@@ -46,7 +46,7 @@
               {{ $t("workbench.generate.generateFailed") }}
             </t-tag>
           </t-tooltip>
-          <div v-if="v.state !== '生成中'" class="selectBtn" @click.stop="selectVideo(v)">
+          <div v-if="canAccept(v)" class="selectBtn" @click.stop="selectVideo(v)">
             <i-check size="16" />
           </div>
           <div class="delBtn" @click.stop="handleDeleteVideo(v)">
@@ -81,6 +81,7 @@
 import type { Ref } from "vue";
 import axios from "@/utils/axios";
 import projectStore from "@/stores/project";
+import { v4 as uuidv4 } from "uuid";
 
 const props = defineProps<{
   activeTrackIndex: number;
@@ -97,25 +98,38 @@ const emit = defineEmits<{
 const { project } = storeToRefs(projectStore());
 const episodesId = inject<Ref<number>>("episodesId")!;
 
-const selectVideoId = ref();
+const selectVideoId = computed(() => currentTrack.value?.selectVideoId);
+const acceptCommandIds = new Map<string, string>();
 const videoCoverMap = ref<Record<string, string>>({});
 const videoPlayerVisible = ref(false);
 const playingVideoSrc = ref<string>();
 
-/** 选中历史视频并同步到后端 */
+function canAccept(v: HistoryVideoItem) {
+  if (v.state === "生成中" || v.state === "生成失败" || v.retired) return false;
+  return v.selectionEligible !== false;
+}
+
+/** Accept 候选视频；无 HTTP response 的 transport retry 复用同一 acceptanceId。 */
 async function selectVideo(v: HistoryVideoItem) {
-  if (v.state === "生成中" || v.state === "生成失败") return;
+  if (!canAccept(v) || currentTrack.value?.id == null) return;
+  const key = `${currentTrack.value.id}:${v.id}`;
+  const acceptanceId = acceptCommandIds.get(key) ?? uuidv4();
+  acceptCommandIds.set(key, acceptanceId);
   try {
     await axios.post("/production/workbench/selectVideo", {
       projectId: project.value?.id,
       scriptId: episodesId.value ?? 0,
       videoId: v.id,
-      trackId: currentTrack?.value.id,
+      trackId: currentTrack.value.id,
+      acceptanceId,
+      reason: null,
     });
+    acceptCommandIds.delete(key);
     window.$message.success($t("workbench.generate.selectVideoSuccess"));
     emit("refresh");
-  } catch {
-    window.$message.error($t("workbench.generate.selectVideoFailed"));
+  } catch (error: any) {
+    if (error?.response) acceptCommandIds.delete(key);
+    window.$message.error(error?.message ?? $t("workbench.generate.selectVideoFailed"));
   }
 }
 
