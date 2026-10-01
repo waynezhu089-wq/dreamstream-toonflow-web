@@ -1,3 +1,12 @@
+export interface ProductionVideoIdentity {
+  projectId: number;
+  scriptId: number;
+  trackId: number;
+  videoId: number;
+  acceptedSourceHash: string;
+  acceptedOutputSha256: string;
+}
+
 /** 媒体素材接口 */
 export interface MediaItem {
   id: string;
@@ -12,6 +21,7 @@ export interface MediaItem {
   waveformData?: number[];
   loading?: boolean;
   selected?: boolean;
+  productionVideo?: ProductionVideoIdentity;
 }
 
 /** 音频素材接口 */
