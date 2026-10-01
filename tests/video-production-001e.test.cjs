@@ -50,3 +50,35 @@ test('Workbench adopts server effective video model so inherited presets can dri
   assert.match(source, /data\.effectiveVideoModel/);
   assert.match(source, /modelParmas\.value\.model = data\.effectiveVideoModel/);
 });
+
+
+test('Accept cache keeps the same ambiguous action ID but clears the whole track after definite success', () => {
+  const source = read('src/views/production/components/workbench/generate/components/video.vue');
+  assert.match(source, /function clearAcceptCommandIdsForTrack\(trackId: number\)/);
+  assert.match(source, /const prefix = `\$\{trackId\}:`/);
+  assert.match(source, /if \(key\.startsWith\(prefix\)\) acceptCommandIds\.delete\(key\)/);
+  assert.match(source, /const acceptanceId = acceptCommandIds\.get\(key\) \?\? uuidv4\(\)/);
+  assert.match(source, /if \(!transportUncertain\) acceptCommandIds\.delete\(key\)/);
+
+  const post = source.indexOf('await axios.post("/production/workbench/selectVideo"');
+  const reconcile = source.indexOf('clearAcceptCommandIdsForTrack(trackId)', post);
+  const refresh = source.indexOf('emit("refresh")', reconcile);
+  assert.ok(post >= 0 && reconcile > post && refresh > reconcile,
+    'a definite Accept response must clear stale same-track command IDs before authoritative refresh');
+
+  // State-model the exact frozen command lifecycle.
+  const cache = new Map();
+  const trackId = 7;
+  const aKey = `${trackId}:101`, bKey = `${trackId}:102`;
+  const oldA = 'accept-A1';
+  cache.set(aKey, oldA); // A transport-ambiguous.
+  assert.equal(cache.get(aKey) ?? 'fresh-A', oldA, 'immediate retry of A reuses the same ID');
+
+  cache.set(bKey, 'accept-B1');
+  const prefix = `${trackId}:`;
+  for (const key of cache.keys()) if (key.startsWith(prefix)) cache.delete(key); // B definite success.
+  assert.equal(cache.has(aKey), false);
+  assert.equal(cache.has(bKey), false);
+  const newA = cache.get(aKey) ?? 'accept-A2';
+  assert.notEqual(newA, oldA, 'later intentional re-Accept of A must obtain a fresh ID');
+});
