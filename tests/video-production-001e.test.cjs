@@ -2,6 +2,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const ts = require('typescript');
+const { parse } = require('vue/compiler-sfc');
 const root = path.resolve(__dirname, '..');
 const read = p => fs.readFileSync(path.join(root, p), 'utf8');
 
@@ -36,6 +38,33 @@ test('editor persists production identity on clip and validates before local exp
   assert.ok(validateCall >= 0 && exportCall > validateCall, 'server validation must precede local export');
   assert.match(source, /acceptedSourceHash/);
   assert.match(source, /acceptedOutputSha256/);
+});
+
+test('editor validation payload keeps project/script scope outside strict material items', () => {
+  const file = 'src/views/production/components/workbench/editVideo/index.vue';
+  const setup = parse(read(file), { filename: file }).descriptor.scriptSetup.content;
+  const ast = ts.createSourceFile(file, setup, ts.ScriptTarget.Latest, true);
+  const fn = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'validateProductionVideoClips');
+  assert.ok(fn, 'expected the real editor validation function');
+  const calls = [];
+  const visit = node => { if (ts.isCallExpression(node)) calls.push(node); ts.forEachChild(node, visit); };
+  visit(fn);
+  const push = calls.filter(call => call.expression.getText(ast) === 'items.push');
+  assert.equal(push.length, 1, 'only one path may append strict material items');
+  const item = push[0].arguments[0];
+  assert.ok(ts.isObjectLiteralExpression(item), 'never send the entire parsed production identity');
+  const expected = ['trackId', 'videoId', 'acceptedSourceHash', 'acceptedOutputSha256'];
+  assert.deepEqual(item.properties.map(property => property.name?.getText(ast)), expected);
+  assert.deepEqual(item.properties.map(property => property.initializer?.getText(ast)), expected.map(key => `parsed.${key}`));
+  assert.doesNotMatch(fn.getText(ast), /items\.push\(parsed\)/);
+
+  const validate = calls.find(call => call.expression.getText(ast) === 'axios.post' &&
+    call.arguments[0]?.text === '/production/workbench/validateAcceptedVideoMaterial');
+  assert.ok(validate, 'server validation must remain before local export');
+  const body = validate.arguments[1];
+  assert.ok(ts.isObjectLiteralExpression(body));
+  assert.deepEqual(body.properties.map(property => property.getText(ast)), ['...scope', 'items']);
+  assert.match(fn.getText(ast), /scope = \{ projectId: parsed\.projectId, scriptId: parsed\.scriptId \}/);
 });
 
 test('ordinary non-production media stays optional and production marker is fail-closed when present', () => {

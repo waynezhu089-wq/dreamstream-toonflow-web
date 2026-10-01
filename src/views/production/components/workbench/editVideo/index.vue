@@ -235,7 +235,9 @@ function productionIdentity(value: unknown): ProductionVideoIdentity | null {
 }
 
 async function validateProductionVideoClips() {
-  const items: ProductionVideoIdentity[] = [];
+  type AcceptedVideoMaterialItem = Pick<ProductionVideoIdentity,
+    "trackId" | "videoId" | "acceptedSourceHash" | "acceptedOutputSha256">;
+  const items: AcceptedVideoMaterialItem[] = [];
   let scope: { projectId: number; scriptId: number } | null = null;
   const seen = new Set<string>();
   for (const track of tracksStore.tracks) for (const clip of track.clips) {
@@ -248,7 +250,15 @@ async function validateProductionVideoClips() {
     if (scope.projectId !== parsed.projectId || scope.scriptId !== parsed.scriptId)
       throw new Error("剪辑台包含不同制作单元的受控视频，无法导出");
     const key = `${parsed.trackId}:${parsed.videoId}:${parsed.acceptedSourceHash}:${parsed.acceptedOutputSha256}`;
-    if (!seen.has(key)) { seen.add(key); items.push(parsed); }
+    if (!seen.has(key)) {
+      seen.add(key);
+      items.push({
+        trackId: parsed.trackId,
+        videoId: parsed.videoId,
+        acceptedSourceHash: parsed.acceptedSourceHash,
+        acceptedOutputSha256: parsed.acceptedOutputSha256,
+      });
+    }
   }
   if (!items.length || !scope) return;
   await axios.post("/production/workbench/validateAcceptedVideoMaterial", { ...scope, items });
