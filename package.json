@@ -16,7 +16,8 @@
     "test:storyboard-production": "node --test tests/storyboard-production.test.cjs",
     "test:capability-library": "node --test --test-force-exit tests/capability-library.test.cjs",
     "test:production-profiles": "node --test tests/production-profiles.test.cjs",
-    "test:recipes": "node --test tests/recipe-ui.test.cjs"
+    "test:recipes": "node --test tests/recipe-ui.test.cjs",
+    "test:video-production": "node --test tests/video-production-001e.test.cjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
