@@ -82,3 +82,53 @@ test('Accept cache keeps the same ambiguous action ID but clears the whole track
   const newA = cache.get(aKey) ?? 'accept-A2';
   assert.notEqual(newA, oldA, 'later intentional re-Accept of A must obtain a fresh ID');
 });
+
+test('response-less Axios timeout remains transport-ambiguous and keeps the same Accept command ID', () => {
+  const axiosSource = read('src/utils/axios.ts');
+  const videoSource = read('src/views/production/components/workbench/generate/components/video.vue');
+
+  // Guard the real shared interceptor against reintroducing an unsafe no-response dereference.
+  assert.match(axiosSource, /error\?\.response\?\.data\?\.message === "Network Error"/);
+  assert.doesNotMatch(axiosSource, /error\.response\.data\?\.message/);
+  assert.match(axiosSource, /Promise\.reject\(error\?\.response\?\.data \?\? error\)/);
+
+  // Isolate the interceptor's rejection semantics with the same expressions used in src/utils/axios.ts.
+  const rejectValue = error => {
+    const isNetworkError =
+      error?.message?.includes?.('Network Error') ||
+      error?.response?.data?.message === 'Network Error';
+    void isNetworkError;
+    return error?.response?.data ?? error;
+  };
+
+  const timeout = {
+    name: 'AxiosError',
+    code: 'ECONNABORTED',
+    message: 'timeout of 30000ms exceeded',
+  };
+  const propagatedTimeout = rejectValue(timeout);
+  assert.equal(propagatedTimeout, timeout, 'response-less timeout must preserve the original AxiosError');
+  const timeoutUncertain = propagatedTimeout?.name === 'AxiosError' && !propagatedTimeout?.response;
+  assert.equal(timeoutUncertain, true);
+
+  const cache = new Map([['7:101', 'accept-A1']]);
+  if (!timeoutUncertain) cache.delete('7:101');
+  assert.equal(cache.get('7:101'), 'accept-A1', 'ambiguous timeout must retain the original acceptanceId');
+  assert.equal(cache.get('7:101') ?? 'accept-A2', 'accept-A1', 'immediate retry must reuse the same acceptanceId');
+
+  const httpFailure = {
+    name: 'AxiosError',
+    message: 'Request failed with status code 409',
+    response: { status: 409, data: { message: 'conflict' } },
+  };
+  const propagatedHttpFailure = rejectValue(httpFailure);
+  const httpUncertain = propagatedHttpFailure?.name === 'AxiosError' && !propagatedHttpFailure?.response;
+  assert.equal(httpUncertain, false);
+  if (!httpUncertain) cache.delete('7:101');
+  assert.equal(cache.has('7:101'), false, 'definite HTTP failure must clear the current command ID');
+
+  // Keep the consumer contract tied to the actual Accept implementation.
+  assert.match(videoSource, /const transportUncertain = error\?\.name === "AxiosError" && !error\?\.response/);
+  assert.match(videoSource, /if \(!transportUncertain\) acceptCommandIds\.delete\(key\)/);
+});
+
