@@ -128,7 +128,10 @@ async function selectVideo(v: HistoryVideoItem) {
     window.$message.success($t("workbench.generate.selectVideoSuccess"));
     emit("refresh");
   } catch (error: any) {
-    if (error?.response) acceptCommandIds.delete(key);
+    // axios wrapper returns HTTP response.data directly, while a transport failure remains AxiosError.
+    // Only an ambiguous transport failure keeps the command id for safe retry.
+    const transportUncertain = error?.name === "AxiosError" && !error?.response;
+    if (!transportUncertain) acceptCommandIds.delete(key);
     window.$message.error(error?.message ?? $t("workbench.generate.selectVideoFailed"));
   }
 }
