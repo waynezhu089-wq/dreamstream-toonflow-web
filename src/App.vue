@@ -87,6 +87,12 @@ async function getPort() {
     }
   } catch (error) {}
 
+  // This checkout is the isolated V0.4 pilot served on 50189. A persisted
+  // setting from an older Toonflow session must not send pilot calls to Stable.
+  if (!isElectron.value && window.location.port === "50189") {
+    baseUrl.value = "http://127.0.0.1:10589/api";
+  }
+
   loading.value = false;
 
   config({

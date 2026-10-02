@@ -12,7 +12,11 @@ const router = createRouter({
     },
     {
       path: "/",
-      redirect: "/workbench",
+      redirect: "/pilot",
+    },
+    {
+      path: "/pilot",
+      component: () => import("@/views/pilot/PilotShell.vue"),
     },
     {
       path: "/workbench",

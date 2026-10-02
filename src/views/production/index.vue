@@ -89,10 +89,10 @@
           </div>
         </t-tooltip> -->
       </div>
-      <div class="openRightChatBoxBtn c" v-show="!openShowVisible" @click.stop="openShowVisible = true">
+      <div class="openRightChatBoxBtn c" v-if="!isV04Pilot" v-show="!openShowVisible" @click.stop="openShowVisible = true">
         <i-menu-unfold-one theme="outline" size="24" />
       </div>
-      <transition name="slide" v-show="openShowVisible" v-if="episodesId">
+      <transition name="slide" v-show="openShowVisible" v-if="episodesId && !isV04Pilot">
         <rightChatBox :title="title" v-model="flowData" @close="openShowVisible = false" />
       </transition>
     </div>
@@ -135,6 +135,10 @@ import { currentAdvertisementUnit, selectAdvertisementUnit, advertisementLocatio
 import projectStore from "@/stores/project";
 
 const { project } = storeToRefs(projectStore());
+const isV04Pilot = computed(() => {
+  try { return Number(JSON.parse(sessionStorage.getItem("v04PilotScope") || "{}").projectId) === Number(project.value?.id); }
+  catch { return false; }
+});
 const router = useRouter();
 const isAdvertisement = computed(() => project.value?.projectType === "general_video" && project.value?.type === "advertisement");
 import settingStore from "@/stores/setting";

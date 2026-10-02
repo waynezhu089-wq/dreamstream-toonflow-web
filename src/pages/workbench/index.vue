@@ -42,6 +42,7 @@
       <div class="topMenu f ac jb" v-if="project?.id">
         <div class="title">
           <h2>{{ project?.name || $t("workbench.selectProject") }}</h2>
+          <button v-if="pilotScope && Number(project.id) === pilotScope.projectId" class="pilot-return" @click="router.push('/pilot')">← V0.4 工作台</button>
         </div>
         <div class="rightBtnList f ac">
           <t-tooltip
@@ -71,6 +72,12 @@
   </div>
   <hello />
   <setting />
+  <div v-if="pilotScope && project?.id && Number(project.id) === pilotScope.projectId" class="pilot-agent-dock">
+    <button class="pilot-agent-toggle" @click="pilotAgentOpen = !pilotAgentOpen">{{ pilotAgentOpen ? "关闭" : "打开" }} Project Agent</button>
+    <div v-if="pilotAgentOpen" class="pilot-agent-panel" @pointerdown.stop @mousedown.stop @wheel.stop @click.stop>
+      <ProjectAgentPanel :project-id="pilotScope.projectId" :script-id="pilotScope.scriptId" :stage="route.path" :route-name="route.fullPath" :selected="null" />
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -79,7 +86,13 @@ import { currentAdvertisementUnit, advertisementLocation } from "@/utils/adverti
 import setting from "@/components/setting/index.vue";
 import hello from "@/components/hello.vue";
 import projectStore from "@/stores/project";
+import ProjectAgentPanel from "@/views/pilot/ProjectAgentPanel.vue";
 const { project } = storeToRefs(projectStore());
+const pilotAgentOpen = ref(true);
+const pilotScope = computed(() => {
+  try { const value = JSON.parse(sessionStorage.getItem("v04PilotScope") || "{}"); return Number.isSafeInteger(value.projectId) && Number.isSafeInteger(value.scriptId) ? value as { projectId: number; scriptId: number } : null; }
+  catch { return null; }
+});
 import settingStore from "@/stores/setting";
 import { NotifyPlugin } from "tdesign-vue-next";
 const { showSetting, isElectron, needUpdate } = storeToRefs(settingStore());
@@ -374,4 +387,6 @@ onUnmounted(() => {
 .fade-leave-to {
   opacity: 0;
 }
+.pilot-agent-dock{position:fixed;right:16px;bottom:16px;z-index:4000;pointer-events:auto}.pilot-agent-toggle{display:block;margin-left:auto;border:1px solid var(--td-component-border);border-radius:8px;background:var(--td-bg-color-container);color:var(--td-text-color-primary);padding:9px 13px;cursor:pointer;box-shadow:var(--td-shadow-2)}.pilot-agent-panel{width:min(370px,calc(100vw - 32px));height:min(650px,calc(100vh - 110px));margin-top:8px;border:1px solid var(--td-component-border);box-shadow:var(--td-shadow-2);background:var(--td-bg-color-container)}
+.pilot-return{border:1px solid var(--td-component-border);border-radius:5px;background:var(--td-bg-color-container);color:var(--td-text-color-primary);padding:5px 9px;cursor:pointer;margin-left:10px}
 </style>

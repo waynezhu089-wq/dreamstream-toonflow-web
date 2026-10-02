@@ -98,7 +98,7 @@ const handleLogin = () => {
     .then(({ data }) => {
       localStorage.setItem("token", data.token);
       localStorage.setItem("userId", data.id);
-      Router.push("/project");
+      Router.push(window.location.port === "50189" ? "/pilot" : "/project");
       window.$message.success($t("login.loginSuccess"));
       state.value.loginLoading = false;
     })

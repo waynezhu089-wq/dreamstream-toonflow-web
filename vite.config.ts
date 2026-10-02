@@ -1,4 +1,5 @@
 import { fileURLToPath, URL } from "node:url";
+import { realpathSync } from "node:fs";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import AutoImport from "unplugin-auto-import/vite";
@@ -9,6 +10,7 @@ import postcsspxtoviewport from "postcss-px-to-viewport";
 
 export default defineConfig({
   base: "./",
+  cacheDir: ".v04-vite-cache",
   build: {
     assetsInlineLimit: Infinity,
     rollupOptions: {
@@ -89,6 +91,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 50188,
+    port: 50189,
+    // This experimental checkout reuses installed packages through a local
+    // junction. Vite must be allowed to read the junction's exact real path.
+    fs: { allow: [process.cwd(), realpathSync(fileURLToPath(new URL("./node_modules", import.meta.url)))] },
   },
 });

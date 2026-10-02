@@ -6,7 +6,7 @@ export default defineStore(
     const canvasWheelEvent = ref("zoom");
     const activeMenu = ref("ui");
 
-    const baseUrl = ref<string>("http://localhost:10588/api");
+    const baseUrl = ref<string>("http://127.0.0.1:10589/api");
 
     const needUpdate = ref(false);
 
