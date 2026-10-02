@@ -43,7 +43,7 @@ import settingStore from "@/stores/setting";
 import ModelPresets from "@/components/ModelPresets.vue";
 type Attachment = { id: string; name: string; mimeType: string; references?: { targetType: string }[] };
 type Phase = "thinking" | "analyzing" | "answering" | "checking" | "failed" | "uncertain" | "complete";
-type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
+type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; relatedUserMessageId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
 type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; knownFailure?: string };
 type Target = "brief" | "treatment" | "script";
 const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean }>();
@@ -64,6 +64,7 @@ let generation = 0, historyGeneration = 0;
 function context() { return { projectId: props.projectId, scriptId: props.scriptId, currentStage: props.stage, currentRoute: props.routeName, selectedObject: props.selected }; }
 function clearImages() { for (const url of Object.values(imageUrls.value)) URL.revokeObjectURL(url); imageUrls.value = {}; }
 function scrollToLatest() { void nextTick(() => feed.value?.scrollTo({ top: feed.value.scrollHeight })); }
+function visionError(data: any) { return `${data.reply || "图片分析失败"}${data.errorCode ? ` 错误代码：${String(data.errorCode).replace(/^PILOT_/, "")}` : ""}${data.errorId ? `；诊断编号：${data.errorId}` : ""}`; }
 function localAgent(requestId: string) { return localMessages.value.find(m => m.id === `local-agent:${requestId}`); }
 function removeLocalUser(requestId: string) {
   const localImages = localMessages.value.find(m => m.id === `local-user:${requestId}`)?.attachments || [];
@@ -118,10 +119,13 @@ async function submit(request: Submission) {
     if (own !== generation) return;
     const agent = localAgent(request.id);
     if (response.data.status === "VISION_MODEL_REQUIRED" || response.data.status === "VISION_ANALYSIS_FAILED") {
-      if (agent) { agent.phase = "failed"; agent.error = response.data.reply; agent.visionConfigurable = true; agent.checkable = false; }
-      request.knownFailure = response.data.reply;
+      if (agent) { agent.phase = "failed"; agent.error = visionError(response.data); agent.relatedUserMessageId = response.data.userMessageId; agent.visionConfigurable = response.data.errorCode !== "PILOT_VISION_SCHEMA_FAILED"; agent.checkable = false; }
+      request.knownFailure = visionError(response.data);
       const history = await load(false);
-      if (history) removeLocal(request.id);
+      if (history) {
+        if (response.data.status === "VISION_MODEL_REQUIRED") removeLocal(request.id);
+        else removeLocalUser(request.id);
+      }
       return;
     }
     if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.error = undefined; }
@@ -190,14 +194,14 @@ function closeVisionSettings() { showVisionSettings.value = false; void load(fal
 async function reanalyze(userMessageId: string) {
   if (busy.value || !visionConfigured.value) return;
   const own = generation, placeholderId = `local-reanalysis:${userMessageId}`;
-  localMessages.value = localMessages.value.filter(m => m.id !== placeholderId);
+  localMessages.value = localMessages.value.filter(m => m.id !== placeholderId && m.relatedUserMessageId !== userMessageId);
   localMessages.value.push({ id: placeholderId, role: "assistant", content: "", phase: "analyzing" });
   busy.value = true; scrollToLatest();
   try {
     const response: any = await axios.post("/v04/agent/reanalyze", { context: context(), userMessageId });
     if (own !== generation) return;
     const agent = localMessages.value.find(m => m.id === placeholderId);
-    if (response.data.status !== "ANSWERED") { if (agent) { agent.phase = "failed"; agent.error = response.data.reply; agent.visionConfigurable = true; } return; }
+    if (response.data.status !== "ANSWERED") { if (agent) { agent.phase = "failed"; agent.error = visionError(response.data); agent.visionConfigurable = response.data.errorCode !== "PILOT_VISION_SCHEMA_FAILED"; } return; }
     if (agent) { agent.phase = "answering"; agent.content = response.data.reply; }
     if (await load(false)) localMessages.value = localMessages.value.filter(m => m.id !== placeholderId);
     else if (agent) agent.phase = "complete";

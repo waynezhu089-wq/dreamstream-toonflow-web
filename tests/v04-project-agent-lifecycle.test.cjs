@@ -151,6 +151,43 @@ test('saved conversational image offers vision setup and reanalysis without reup
   assert.match(panel.el.querySelector('.turn.assistant').textContent, /Logo 是蓝色轮廓/);
 });
 
+test('Vision reanalysis keeps provider versus schema errors visible with a diagnostic code', async t => {
+  let failure = { status: 'VISION_ANALYSIS_FAILED', reply: '视觉模型调用失败，请检查供应商配置。', errorCode: 'PILOT_VISION_PROVIDER_FAILED', errorId: 'diagnostic-1' };
+  const user = { id: 'saved-user', role: 'user', content: '请看 Logo', attachments: [{ id: 'saved-image', name: 'logo.png', mimeType: 'image/png' }] };
+  const panel = mount(t, async url => {
+    if (url === '/v04/agent/history') return { data: { visionConfigured: true, messages: [user] } };
+    if (url === '/v04/agent/reanalyze') return { data: failure };
+    throw new Error(`unexpected ${url}`);
+  });
+  await settle();
+  panel.button('重新分析这条消息').click(); await settle();
+  assert.match(panel.el.querySelector('.turn.assistant [role="alert"]').textContent, /VISION_PROVIDER_FAILED.*diagnostic-1/);
+  assert.ok(panel.button('配置视觉模型'));
+  failure = { status: 'VISION_ANALYSIS_FAILED', reply: '视觉模型已返回内容，但结构化分析失败，可以重试。', errorCode: 'PILOT_VISION_SCHEMA_FAILED', errorId: 'diagnostic-2' };
+  panel.button('重新分析这条消息').click(); await settle();
+  assert.match(panel.el.querySelector('.turn.assistant [role="alert"]').textContent, /VISION_SCHEMA_FAILED.*diagnostic-2/);
+  assert.equal(panel.button('配置视觉模型'), undefined);
+});
+
+test('a persisted image provider failure remains in the Agent turn after authoritative history refresh', async t => {
+  let historyReads = 0;
+  const panel = mount(t, async url => {
+    if (url === '/v04/agent/history') return { data: { visionConfigured: true, messages: ++historyReads === 1 ? [] : [
+      { id: 'saved-user', role: 'user', content: '分析图片', createTime: Date.now(), attachments: [{ id: 'saved-image', name: 'logo.png', mimeType: 'image/png' }] },
+      ...(historyReads > 2 ? [{ id: 'reanalysis-answer', role: 'assistant', content: '真实图片观察' }] : []),
+    ] } };
+    if (url === '/v04/agent/chat') return { data: { status: 'VISION_ANALYSIS_FAILED', reply: '视觉模型调用失败，请检查供应商配置。', errorCode: 'PILOT_VISION_PROVIDER_FAILED', errorId: 'diagnostic-3', userMessageId: 'saved-user' } };
+    if (url === '/v04/agent/reanalyze') return { data: { status: 'ANSWERED', reply: '真实图片观察' } };
+    throw new Error(`unexpected ${url}`);
+  });
+  await settle(); await panel.send('分析图片');
+  assert.equal(panel.el.querySelectorAll('.turn.user').length, 1);
+  assert.match(panel.el.querySelector('.turn.assistant [role="alert"]').textContent, /VISION_PROVIDER_FAILED.*diagnostic-3/);
+  panel.button('重新分析这条消息').click(); await settle();
+  assert.equal(panel.el.querySelector('.turn.assistant [role="alert"]'), null,'successful reanalysis removes the stale provider error');
+  assert.match(panel.el.querySelector('.turn.assistant').textContent, /真实图片观察/);
+});
+
 test('definite pre-persist rejection offers Retry on the same local turn without another user bubble', async t => {
   let chatCalls = 0;
   const panel = mount(t, async url => {
