@@ -79,6 +79,7 @@ import axios from "@/utils/axios";
 import projectStore from "@/stores/project";
 import { selectAdvertisementUnit } from "@/utils/advertisementUnit";
 import ProjectAgentPanel from "./ProjectAgentPanel.vue";
+import { handoffToProjectPage, type PilotHandoffTarget } from "./projectHandoff";
 import { useStoryboardRevision } from "@/views/production/revision/coordinator";
 const router = useRouter();
 const categories = ["CHAR","ACC","PROP","PRODUCT","LOC","BRAND","UI","FX"];
@@ -129,8 +130,22 @@ async function confirmShots(){await revision.confirm();if(revision.state.status=
 async function proposeDecision(){error.value="";try{await api("/decision/propose",{...scope(),category:"CREATIVE_DIRECTION",subjectType:null,subjectKey:null,content:decisionText.value.trim(),sourceMessageIds:[]});decisionText.value="";await reload();}catch(e){fail(e);}}
 async function setDecision(decisionId:string,status:"ACCEPTED"|"REJECTED"){try{await api("/decision/decide",{...scope(),decisionId,status});await reload();}catch(e){fail(e);}}
 const decisionStatus=(v:string)=>({PROPOSED:"待决定",ACCEPTED:"已接受",REJECTED:"已否决",SUPERSEDED:"已替代"} as any)[v]||v;
-async function openProduction(){const response:any=await axios.post("/project/getSingleProject",{id:state.value.project.id});projectStore().project=response.data[0];selectAdvertisementUnit(state.value.project.id,state.value.creative.scriptId);router.push(`/production?scriptId=${state.value.creative.scriptId}`);}
-async function openAssetPreparation(){const response:any=await axios.post("/project/getSingleProject",{id:state.value.project.id});projectStore().project=response.data[0];selectAdvertisementUnit(state.value.project.id,state.value.creative.scriptId);router.push(`/assets?scriptId=${state.value.creative.scriptId}`);}
+async function handoff(target:PilotHandoffTarget){
+  if (!state.value || saving.value) return;
+  saving.value=true;error.value="";
+  try {
+    await handoffToProjectPage(state.value.project.id,state.value.creative.scriptId,target,{
+      post:(path,body)=>axios.post(path,body),
+      setProject:project=>{projectStore().project=project;},
+      selectUnit:selectAdvertisementUnit,
+      navigate:path=>router.push(path),
+    });
+  } catch(e:any) {
+    error.value=`无法打开${target==="assets"?"广告资产准备":"Production 工作台"}：${e?.response?.data?.message || e?.message || "请检查服务后重试"}`;
+  } finally {saving.value=false;}
+}
+function openProduction(){return handoff("production");}
+function openAssetPreparation(){return handoff("assets");}
 onMounted(async()=>{await loadProjects();const raw=sessionStorage.getItem("v04PilotScope");if(raw){try{const s=JSON.parse(raw);await open(Number(s.projectId),Number(s.scriptId));}catch{sessionStorage.removeItem("v04PilotScope");}}});
 </script>
 <style scoped>

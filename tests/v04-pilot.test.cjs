@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const { parse, compileTemplate } = require('@vue/compiler-sfc');
+const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
@@ -73,4 +74,55 @@ test('pilot login selects the isolated API before the first request and enters C
   assert.match(app, /if \(window\.location\.port === "50189"\) baseUrl\.value = "http:\/\/127\.0\.0\.1:10589\/api"/);
   assert.match(login, /Router\.push\(window\.location\.port === "50189" \? "\/pilot" : "\/project"\)/);
   assert.match(router, /path: "\/pilot",\s*component: \(\) => import\("@\/views\/pilot\/PilotShell\.vue"\)/);
+});
+
+test('Assets and Video/Edit handoff load the real general project route before navigating', async () => {
+  const shell = read('src/views/pilot/PilotShell.vue');
+  assert.match(shell, /@click="openAssetPreparation"/);
+  assert.match(shell, /tab === 'video' \|\| tab === 'edit'/);
+  assert.match(shell, /@click="openProduction"/);
+  assert.match(shell, /function openAssetPreparation\(\)\{return handoff\("assets"\);\}/);
+  assert.match(shell, /function openProduction\(\)\{return handoff\("production"\);\}/);
+  assert.match(shell, /<p v-if="error" class="error" role="alert">\{\{ error \}\}<\/p>/);
+  assert.match(shell, /catch\(e:any\) \{\s*error\.value=`无法打开/);
+  assert.doesNotMatch(shell, /\/project\/getSingleProject/);
+
+  const code = ts.transpileModule(read('src/views/pilot/projectHandoff.ts'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const module = { exports: {} };
+  new Function('module', 'exports', code)(module, module.exports);
+  const { handoffToProjectPage } = module.exports;
+  for (const target of ['assets', 'production']) {
+    const calls = [];
+    const project = { id: 17, name: 'V0.4 Pilot' };
+    await handoffToProjectPage(17, 42, target, {
+      post: async (route, body) => { calls.push(['post', route, body]); return { data: [project] }; },
+      setProject: value => calls.push(['setProject', value]),
+      selectUnit: (projectId, scriptId) => calls.push(['selectUnit', projectId, scriptId]),
+      navigate: async route => calls.push(['navigate', route]),
+    });
+    assert.deepEqual(calls, [
+      ['post', '/general/getSingleProject', { id: 17 }],
+      ['setProject', project],
+      ['selectUnit', 17, 42],
+      ['navigate', `/${target}?scriptId=42`],
+    ]);
+  }
+});
+
+test('handoff failure does not navigate or replace the selected project', async () => {
+  const code = ts.transpileModule(read('src/views/pilot/projectHandoff.ts'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const module = { exports: {} };
+  new Function('module', 'exports', code)(module, module.exports);
+  const calls = [];
+  await assert.rejects(module.exports.handoffToProjectPage(17, 42, 'assets', {
+    post: async () => { throw new Error('route unavailable'); },
+    setProject: () => calls.push('setProject'),
+    selectUnit: () => calls.push('selectUnit'),
+    navigate: async () => calls.push('navigate'),
+  }), /route unavailable/);
+  assert.deepEqual(calls, []);
 });
