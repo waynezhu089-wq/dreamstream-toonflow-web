@@ -10,17 +10,18 @@
       <p v-if="!messages.length" class="empty">先聊创意。讨论和图片会跟随这个项目；Agent 的建议不会直接改动正式内容。</p>
       <div v-for="m in messages" :key="m.id" class="turn" :class="[m.role, m.phase || 'complete']">
         <small class="turn-label">{{ m.role === "user" ? "你" : "Project Agent" }}</small>
-        <div v-if="m.phase === 'thinking' || m.phase === 'checking'" class="turn-progress" role="status"><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ m.phase === 'checking' ? '正在检查消息状态…' : 'Project Agent 正在思考…' }}</div>
-        <div v-if="m.phase === 'answering'" class="turn-progress" role="status">正在回答…</div>
-        <div v-if="m.error" class="turn-error" role="alert"><span>{{ m.error }}</span><div class="turn-actions"><button v-if="m.retryable" type="button" :disabled="busy" @click="retryRequest(m.requestId!)">重试</button><button v-if="m.checkable" type="button" :disabled="busy" @click="checkStatus(m.requestId!)">检查状态</button></div></div>
+        <div v-if="m.phase === 'thinking' || m.phase === 'analyzing' || m.phase === 'checking'" class="turn-progress" role="status"><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ m.phase === 'checking' ? '正在检查消息状态…' : m.phase === 'analyzing' ? '正在分析图片…' : 'Project Agent 正在思考…' }}</div>
+        <div v-if="m.phase === 'answering'" class="turn-progress" role="status">正在整理回答…</div>
+        <div v-if="m.error" class="turn-error" role="alert"><span>{{ m.error }}</span><div class="turn-actions"><button v-if="m.visionConfigurable" type="button" @click="showVisionSettings=true">配置视觉模型</button><button v-if="m.retryable" type="button" :disabled="busy" @click="retryRequest(m.requestId!)">重试</button><button v-if="m.checkable" type="button" :disabled="busy" @click="checkStatus(m.requestId!)">检查状态</button></div></div>
         <p v-if="m.role === 'user'" class="user-content">{{ m.content }}</p>
-        <MdPreview v-else-if="m.content && m.phase !== 'thinking' && m.phase !== 'checking'" class="agent-content" :theme="markdownTheme" :modelValue="m.content" preview-only preview-theme="github" />
+        <MdPreview v-else-if="m.content && !['thinking','analyzing','checking'].includes(m.phase || '')" class="agent-content" :theme="markdownTheme" :modelValue="m.content" preview-only preview-theme="github" />
         <div v-for="a in m.attachments || []" :key="a.id" class="attachment">
           <img v-if="imageUrls[a.id]" :src="imageUrls[a.id]" :alt="a.name" />
           <span>{{ a.name }} · 对话参考</span>
           <small v-if="a.references?.length" class="accepted">已确认：{{ a.references.map(r => referenceLabel(r.targetType)).join("、") }}</small>
           <div class="reference-actions"><select v-model="referenceChoices[a.id]" :aria-label="`图片 ${a.name} 的用途`"><option value="">选择图片用途…</option><option value="PROJECT_REFERENCE">加入项目参考</option><option value="ASSET_BIBLE">加入素材圣经参考</option><option v-if="selected?.type === 'ASSET'" value="BIND_SELECTED_ASSET">关联选中素材作参考</option><option v-if="selected?.type === 'ASSET'" value="PRODUCTION_ASSET">上传为选中素材的正式图片</option><option v-if="selected?.type === 'SHOT'" value="SHOT_REFERENCE">用作选中镜头参考</option></select><button :disabled="busy || !referenceChoices[a.id]" @click="previewReference(a.id)">预览</button></div>
         </div>
+        <div v-if="m.role === 'user' && m.attachments?.length && !m.id.startsWith('local-user:')" class="vision-actions"><small v-if="!visionConfigured">图片已保存为对话参考；视觉模型未配置，暂时无法分析。</small><button v-if="!visionConfigured" type="button" @click="showVisionSettings=true">配置视觉模型</button><button type="button" :disabled="busy || !visionConfigured" @click="reanalyze(m.id)">重新分析这条消息</button></div>
       </div>
     </div>
     <div v-if="referencePreview" class="confirm-reference"><strong>确认图片用途</strong><p>{{ referencePreview.notice }}</p><button :disabled="busy" @click="applyReference">确认</button><button class="quiet" @click="referencePreview=null">取消</button></div>
@@ -30,6 +31,7 @@
       <div v-if="pendingImages.length" class="pending-images"><span v-for="(file,i) in pendingImages" :key="`${file.name}-${i}`">{{ file.name }} <button type="button" :aria-label="`移除 ${file.name}`" @click="pendingImages.splice(i,1)">×</button></span></div>
       <div class="compose-actions"><label class="attach" for="project-agent-image">＋ 图片<input id="project-agent-image" type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFiles" /></label><small>Ctrl + Enter</small><button :disabled="busy || (!draft.trim() && !pendingImages.length)">发送</button></div>
     </form>
+    <t-dialog :visible="showVisionSettings" attach="body" width="680px" header="配置视觉分析模型" :footer="false" @close="closeVisionSettings"><ModelPresets :project-id="projectId" /><button type="button" @click="closeVisionSettings">完成并返回对话</button></t-dialog>
   </aside>
 </template>
 <script setup lang="ts">
@@ -38,18 +40,25 @@ import { storeToRefs } from "pinia";
 import { MdPreview } from "md-editor-v3";
 import axios from "@/utils/axios";
 import settingStore from "@/stores/setting";
+import ModelPresets from "@/components/ModelPresets.vue";
 type Attachment = { id: string; name: string; mimeType: string; references?: { targetType: string }[] };
-type Phase = "thinking" | "answering" | "checking" | "failed" | "uncertain" | "complete";
-type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; error?: string; retryable?: boolean; checkable?: boolean };
+type Phase = "thinking" | "analyzing" | "answering" | "checking" | "failed" | "uncertain" | "complete";
+type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
 type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; knownFailure?: string };
 type Target = "brief" | "treatment" | "script";
 const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean }>();
 const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string } }): void; (e: "production-asset-applied"): void }>();
 const { themeSetting } = storeToRefs(settingStore());
 const markdownTheme = computed<"light" | "dark">(() => themeSetting.value.mode === "auto" ? (document.documentElement.getAttribute("theme-mode") === "dark" ? "dark" : "light") : themeSetting.value.mode);
-const historyMessages = ref<Message[]>([]), localMessages = ref<Message[]>([]), messages = computed(() => [...historyMessages.value, ...localMessages.value]);
+const historyMessages = ref<Message[]>([]), localMessages = ref<Message[]>([]);
+const messages = computed(() => [...historyMessages.value.flatMap((m, index): Message[] => {
+  if (m.role === "user" && m.attachments?.length && historyMessages.value[index + 1]?.role !== "assistant" && !visionConfigured.value)
+    return [m, { id: `vision-missing:${m.id}`, role: "assistant", content: "", phase: "failed", error: "当前项目尚未配置视觉模型，因此图片已保存，但我还不能分析它。", visionConfigurable: true }];
+  return [m];
+}), ...localMessages.value]);
 const draft = ref(""), error = ref(""), busy = ref(false), feed = ref<HTMLElement | null>(null);
 const pendingImages = ref<File[]>([]), imageUrls = ref<Record<string,string>>({}), referenceChoices = ref<Record<string,string>>({}), referencePreview = ref<any>(null);
+const visionConfigured = ref(true), showVisionSettings = ref(false);
 const submissions = new Map<string, Submission>();
 let generation = 0, historyGeneration = 0;
 function context() { return { projectId: props.projectId, scriptId: props.scriptId, currentStage: props.stage, currentRoute: props.routeName, selectedObject: props.selected }; }
@@ -72,6 +81,7 @@ async function load(showError = true): Promise<Message[] | null> {
     const response: any = await axios.post("/v04/agent/history", { projectId, scriptId: props.scriptId });
     if (own !== generation || call !== historyGeneration) return null;
     historyMessages.value = response.data.messages;
+    visionConfigured.value = response.data.visionConfigured !== false;
     const attachments = historyMessages.value.flatMap(m => m.attachments || []);
     await Promise.all(attachments.map(async a => {
       if (imageUrls.value[a.id]) return;
@@ -107,6 +117,13 @@ async function submit(request: Submission) {
     const response: any = await axios.post("/v04/agent/chat", { context: request.ctx, message: request.content, attachmentIds: request.attachmentIds });
     if (own !== generation) return;
     const agent = localAgent(request.id);
+    if (response.data.status === "VISION_MODEL_REQUIRED" || response.data.status === "VISION_ANALYSIS_FAILED") {
+      if (agent) { agent.phase = "failed"; agent.error = response.data.reply; agent.visionConfigurable = true; agent.checkable = false; }
+      request.knownFailure = response.data.reply;
+      const history = await load(false);
+      if (history) removeLocal(request.id);
+      return;
+    }
     if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.error = undefined; }
     scrollToLatest();
     if (await load(false)) removeLocal(request.id);
@@ -139,7 +156,7 @@ async function send() {
   });
   localMessages.value.push(
     { id: `local-user:${id}`, role: "user", content: content || "[图片参考]", attachments, requestId: id },
-    { id: `local-agent:${id}`, role: "assistant", content: "", phase: "thinking", requestId: id },
+    { id: `local-agent:${id}`, role: "assistant", content: "", phase: files.length ? "analyzing" : "thinking", requestId: id },
   );
   draft.value = ""; pendingImages.value = []; error.value = ""; busy.value = true; scrollToLatest();
   await submit(request);
@@ -149,7 +166,7 @@ async function retryRequest(requestId: string) {
   if (!request || !agent?.retryable || busy.value) return;
   request.chatDispatched = false;
   request.knownFailure = undefined;
-  agent.phase = "thinking"; agent.content = ""; agent.error = undefined; agent.retryable = false; agent.checkable = false;
+  agent.phase = request.files.length ? "analyzing" : "thinking"; agent.content = ""; agent.error = undefined; agent.retryable = false; agent.checkable = false; agent.visionConfigurable = false;
   busy.value = true; scrollToLatest(); await submit(request);
 }
 async function checkStatus(requestId: string) {
@@ -168,6 +185,27 @@ async function checkStatus(requestId: string) {
     } else { agent.phase = "uncertain"; agent.error = matchingUserIndexes.length > 1 ? "服务器记录中有多条相同消息，暂时无法确认哪条对应本次请求；请勿重复发送。" : "历史中尚未找到这条消息；原请求可能仍在处理。请稍后再检查，不要重复发送。"; }
     agent.retryable = false; agent.checkable = true;
   } finally { busy.value = false; scrollToLatest(); }
+}
+function closeVisionSettings() { showVisionSettings.value = false; void load(false); }
+async function reanalyze(userMessageId: string) {
+  if (busy.value || !visionConfigured.value) return;
+  const own = generation, placeholderId = `local-reanalysis:${userMessageId}`;
+  localMessages.value = localMessages.value.filter(m => m.id !== placeholderId);
+  localMessages.value.push({ id: placeholderId, role: "assistant", content: "", phase: "analyzing" });
+  busy.value = true; scrollToLatest();
+  try {
+    const response: any = await axios.post("/v04/agent/reanalyze", { context: context(), userMessageId });
+    if (own !== generation) return;
+    const agent = localMessages.value.find(m => m.id === placeholderId);
+    if (response.data.status !== "ANSWERED") { if (agent) { agent.phase = "failed"; agent.error = response.data.reply; agent.visionConfigurable = true; } return; }
+    if (agent) { agent.phase = "answering"; agent.content = response.data.reply; }
+    if (await load(false)) localMessages.value = localMessages.value.filter(m => m.id !== placeholderId);
+    else if (agent) agent.phase = "complete";
+  } catch (e: any) {
+    if (own !== generation) return;
+    const agent = localMessages.value.find(m => m.id === placeholderId);
+    if (agent) { agent.phase = "uncertain"; agent.error = `${e?.message || "重新分析未完成"}。结果可能仍在处理；请先查看最新对话，避免重复请求。`; }
+  } finally { if (own === generation) busy.value = false; scrollToLatest(); }
 }
 async function suggest(target: Target) {
   if (busy.value || !window.confirm("生成创意提案会调用当前项目配置的文本模型，可能产生费用。继续吗？")) return;
@@ -193,7 +231,7 @@ async function applyReference() {
   finally { busy.value = false; }
 }
 onMounted(() => { void load(); });
-watch(() => props.projectId, () => { generation++; historyGeneration++; clearImages(); historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; void load(); });
+watch(() => props.projectId, () => { generation++; historyGeneration++; clearImages(); historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; showVisionSettings.value = false; void load(); });
 onBeforeUnmount(() => { generation++; clearImages(); });
 </script>
 <style scoped>
@@ -206,5 +244,6 @@ header{display:flex;align-items:center;justify-content:space-between;padding:1.2
 .turn-error{margin-top:.6rem;color:var(--td-error-color);font-size:.82rem;line-height:1.5}.turn-actions{display:flex;gap:.45rem;margin-top:.5rem}.turn-actions button{background:transparent;color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.73rem;padding:.3rem .55rem}.error{color:var(--td-error-color);padding:.5rem 1.2rem;font-size:.83rem}.composer{padding:1rem;border-top:1px solid var(--td-component-border)}textarea{box-sizing:border-box;width:100%;resize:vertical;min-height:5rem;border:1px solid var(--td-component-border);border-radius:.6rem;background:var(--td-bg-color-container);color:var(--td-text-color-primary);font:inherit;padding:.7rem}.compose-actions{display:flex;justify-content:space-between;align-items:center;margin-top:.5rem}.compose-actions small{color:var(--td-text-color-secondary)}button{border:0;background:var(--td-brand-color);color:#fff;border-radius:.4rem;padding:.5rem .9rem;cursor:pointer}button:disabled{opacity:.45;cursor:default}
 .quick-actions{display:flex;flex-wrap:wrap;gap:.35rem;padding:.8rem 1.2rem;border-bottom:1px solid var(--td-component-border)}.quick-actions button,.reference-actions button,.confirm-reference button{background:var(--td-bg-color-secondarycontainer);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);border-radius:.35rem;padding:.3rem .45rem;cursor:pointer;font-size:.72rem}
 .attachment{margin:.5rem 0;padding:.35rem 0;border-top:1px solid var(--td-component-border)}.attachment img{display:block;max-width:100%;max-height:12rem;object-fit:contain;border-radius:.35rem;margin:.35rem 0}.attachment span,.attachment small{display:block;font-size:.72rem}.attachment .accepted{color:var(--td-success-color)}.reference-actions{display:flex;gap:.3rem;margin-top:.4rem}.reference-actions select{min-width:0;flex:1;background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);border-radius:.3rem;font-size:.72rem}
+.vision-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;margin-top:.5rem}.vision-actions small{width:100%;color:var(--td-text-color-secondary);line-height:1.45}.vision-actions button{background:transparent;color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.72rem;padding:.3rem .5rem}
 .confirm-reference{padding:.7rem 1.2rem;border-top:1px solid var(--td-component-border);font-size:.79rem}.confirm-reference p{color:var(--td-text-color-secondary);line-height:1.45}.confirm-reference button{margin-right:.4rem}.attach{font-size:.78rem;cursor:pointer;color:var(--td-brand-color)}.attach input{display:none}.pending-images{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem}.pending-images span{font-size:.7rem;background:var(--td-bg-color-secondarycontainer);border-radius:.3rem;padding:.25rem}.pending-images button{background:none;border:0;color:var(--td-text-color-primary);cursor:pointer}
 </style>

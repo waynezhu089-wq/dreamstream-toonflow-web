@@ -3,6 +3,7 @@
     <h2>{{ projectId ? '本项目模型配置' : '模型预设' }}</h2>
     <p>广告前半段无需模型。生成时才检查对应模型；配置供应商不会自动发起生成。</p>
     <p>优先使用项目单项配置，其次广告默认预设，最后系统默认。空项表示继续继承。</p>
+    <p>视觉分析模型请选支持图片输入的文本模型；仅选择槽位不会证明供应商支持看图，实际分析失败会保留原消息和图片。</p>
     <button @click="configureVendor">配置模型供应商</button>
     <p v-if="message" role="status">{{ message }}</p>
     <p v-if="error" role="alert">{{ error }} <button @click="load">重试</button></p>
@@ -28,7 +29,7 @@
       </template>
       <template v-else>
         <button :disabled="!selected" @click="applyPreset">应用整个预设</button>
-        <p>应用整套预设会替换本项目四个槽位；之后仍可逐项修改。</p>
+        <p>应用整套预设会替换本项目五个槽位；之后仍可逐项修改。视觉模型用于对话图片分析，可与文本模型分别设置。</p>
         <div v-for="s in slots" :key="s.key" class="slot">
           <label>{{ s.label }} <select :aria-label="s.label" v-model="draft[s.key]">
             <option value="">继承默认配置</option><option v-for="o in optionsFor(s.key, draft[s.key])" :key="o.value" :value="o.value">{{ o.label }}</option>
@@ -45,13 +46,13 @@ import { ref, watch } from 'vue';
 import axios from '@/utils/axios';
 import settingStore from '@/stores/setting';
 import projectStore from '@/stores/project';
-type Slot = 'text' | 'image' | 'video' | 'tts';
+type Slot = 'text' | 'vision' | 'image' | 'video' | 'tts';
 type Models = Record<Slot, string>;
 interface Preset { id: string; name: string; slots: Record<Slot, string | null> }
 interface Option { value: string; label: string; type: Slot }
 const props = defineProps<{ projectId?: number }>();
-const slots: { key: Slot; label: string }[] = [{ key: 'text', label: '文本模型' }, { key: 'image', label: '图片模型' }, { key: 'video', label: '视频模型' }, { key: 'tts', label: '音频/TTS模型' }];
-const empty = (): Models => ({ text: '', image: '', video: '', tts: '' });
+const slots: { key: Slot; label: string }[] = [{ key: 'text', label: '文本模型' }, { key: 'vision', label: '视觉分析模型' }, { key: 'image', label: '图片模型' }, { key: 'video', label: '视频模型' }, { key: 'tts', label: '音频/TTS模型' }];
+const empty = (): Models => ({ text: '', vision: '', image: '', video: '', tts: '' });
 const presets = ref<Preset[]>([]), options = ref<Option[]>([]);
 const selected = ref(''), name = ref(''), draft = ref(empty()), effective = ref(empty()), sources = ref<Record<string,string>>({});
 const adDefault = ref(''), systemDefault = ref(''), loading = ref(false), busy = ref(false), error = ref(''), message = ref('');

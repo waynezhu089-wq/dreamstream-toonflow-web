@@ -24,6 +24,7 @@ function mount(t, post) {
   const requireMock = id => {
     if (id === '@/utils/axios') return { post, get: async () => new Blob() };
     if (id === '@/stores/setting') return () => ({});
+    if (id === '@/components/ModelPresets.vue') return { render: () => vue.h('div', 'Model Presets') };
     if (id === 'pinia') return { storeToRefs: () => ({ themeSetting: vue.ref({ mode: 'dark' }) }) };
     if (id === 'md-editor-v3') return { MdPreview: { props: ['modelValue'], template: '<div class="md-preview">{{ modelValue }}</div>' } };
     return require(id);
@@ -32,6 +33,7 @@ function mount(t, post) {
   const el = document.createElement('div'); document.body.append(el);
   const app = vue.createApp({ render: () => vue.h(module.exports.default,
     { projectId: 7, scriptId: 2, stage: 'creative', routeName: 'pilot/creative', selected: null, creativeMode: true }) });
+  app.component('t-dialog', { props: ['visible'], render() { return this.visible ? vue.h('div', { class: 'dialog-stub' }, this.$slots.default?.()) : null; } });
   app.mount(el);
   t.after(() => { app.unmount(); el.remove(); });
   const button = label => [...el.querySelectorAll('button')].find(node => node.textContent.trim() === label);
@@ -59,7 +61,7 @@ test('send immediately shows a distinct user turn and animated Agent turn, then 
   panel.button('发送').click(); assert.equal(chatCalls, 1);
 
   chat.resolve({ data: { reply: '## 镜头节奏\n先慢后快。' } }); await settle();
-  assert.match(panel.el.querySelector('.turn.assistant [role="status"]').textContent, /正在回答/);
+  assert.match(panel.el.querySelector('.turn.assistant [role="status"]').textContent, /正在整理回答/);
   assert.match(panel.el.querySelector('.md-preview').textContent, /镜头节奏/);
   refreshed.resolve({ data: { messages: [
     { id: 'server-user', role: 'user', content: '这支片的视觉节奏如何？', createTime: Date.now() },
@@ -127,6 +129,26 @@ test('known provider failure remains explicit after checking the persisted messa
   panel.button('检查状态').click(); await settle();
   assert.match(panel.el.querySelector('.turn.assistant [role="alert"]').textContent, /当前文本模型未能处理图片.*消息已保留/);
   assert.equal(panel.button('重试'), undefined);
+});
+
+test('saved conversational image offers vision setup and reanalysis without reupload', async t => {
+  let historyReads = 0, reanalysis = 0;
+  const user = { id: 'saved-user', role: 'user', content: '请看 Logo', attachments: [{ id: 'saved-image', name: 'logo.png', mimeType: 'image/png' }] };
+  const panel = mount(t, async (url, body) => {
+    if (url === '/v04/agent/history') return { data: { visionConfigured: ++historyReads > 1, messages: historyReads > 2 ? [user, { id: 'answer', role: 'assistant', content: 'Logo 是蓝色轮廓。' }] : [user] } };
+    if (url === '/v04/agent/reanalyze') { reanalysis++; assert.equal(body.userMessageId, 'saved-user'); return { data: { status: 'ANSWERED', reply: 'Logo 是蓝色轮廓。' } }; }
+    throw new Error(`unexpected ${url}`);
+  });
+  await settle();
+  assert.match(panel.el.textContent, /图片已保存为对话参考.*视觉模型未配置/);
+  assert.ok(panel.button('重新分析这条消息').disabled);
+  panel.button('配置视觉模型').click(); await settle();
+  assert.ok(panel.button('完成并返回对话'));
+  panel.button('完成并返回对话').click(); await settle();
+  assert.equal(panel.button('重新分析这条消息').disabled, false);
+  panel.button('重新分析这条消息').click(); await settle();
+  assert.equal(reanalysis, 1);
+  assert.match(panel.el.querySelector('.turn.assistant').textContent, /Logo 是蓝色轮廓/);
 });
 
 test('definite pre-persist rejection offers Retry on the same local turn without another user bubble', async t => {

@@ -2,11 +2,11 @@ const assert=require('node:assert/strict'),{test}=require('node:test'),fs=requir
 const {JSDOM}=require('jsdom');const dom=new JSDOM('<html><body></body></html>',{url:'http://localhost'});for(const k of ['window','document','Element','HTMLElement','SVGElement','Node','Event'])global[k]=dom.window[k];
 const vue=require('vue'),ts=require('typescript'),{parse,compileScript}=require('vue/compiler-sfc');const root=path.resolve(__dirname,'..');
 const settle=async()=>{for(let i=0;i<5;i++){await new Promise(r=>setTimeout(r,0));await vue.nextTick();}};
-const empty=()=>({text:null,image:null,video:null,tts:null});
+const empty=()=>({text:null,vision:null,image:null,video:null,tts:null});
 function fixture(t,projectId){
  const requests=[],presets=[{id:'one',name:'广告组合',slots:{text:'v:text',image:'v:image',video:'v:video',tts:null}}];let overrides=empty();const store={project:{id:projectId,imageModel:'',videoModel:''}};const control={before:null};
  const post=async(url,body)=>{requests.push({url,body:structuredClone(body)});if(control.before){const v=await control.before(url,body);if(v)return v;}
- if(url.endsWith('/list'))return{data:{presets:structuredClone(presets),scopes:[],options:['text','image','video','tts'].map(type=>({value:'v:'+type,type,label:type+' choice'}))}};
+ if(url.endsWith('/list'))return{data:{presets:structuredClone(presets),scopes:[],options:['text','vision','image','video','tts'].map(type=>({value:'v:'+type,type,label:type+' choice'}))}};
  if(url.endsWith('/save')){const p={...body,id:body.id||'two'};presets.push(p);return{data:p};}
  if(url.endsWith('/default'))return{data:{}};
  if(url.endsWith('/project'))overrides=body.presetId?{...presets[0].slots}:{...overrides,...body.slots};
@@ -18,8 +18,8 @@ function fixture(t,projectId){
  const click=async text=>{const b=[...container.querySelectorAll('button')].find(b=>b.textContent.trim()===text);assert.ok(b,text);b.click();await settle();};return{requests,container,input,click,props,control};
 }
 test('preset UI saves entire multi-model combination and empty preset without generation',async t=>{
- const f=fixture(t);await settle();await f.input('预设名称','通用组合');for(const [label,value] of [['文本模型','v:text'],['图片模型','v:image'],['视频模型','v:video'],['音频/TTS模型','v:tts']])await f.input(label,value);await f.click('保存整套预设');
- assert.deepEqual(f.requests.find(r=>r.url.endsWith('/save')).body.slots,{text:'v:text',image:'v:image',video:'v:video',tts:'v:tts'});
+ const f=fixture(t);await settle();await f.input('预设名称','通用组合');for(const [label,value] of [['文本模型','v:text'],['视觉分析模型','v:vision'],['图片模型','v:image'],['视频模型','v:video'],['音频/TTS模型','v:tts']])await f.input(label,value);await f.click('保存整套预设');
+ assert.deepEqual(f.requests.find(r=>r.url.endsWith('/save')).body.slots,{text:'v:text',vision:'v:vision',image:'v:image',video:'v:video',tts:'v:tts'});
  await f.click('新建预设');await f.input('预设名称','稍后配置');await f.click('保存整套预设');assert.deepEqual(f.requests.filter(r=>r.url.endsWith('/save')).at(-1).body.slots,empty());
  await f.input('广告默认预设','one');await f.click('保存默认预设');assert.ok(f.requests.some(r=>r.body.scope==='profile:advertisement'&&r.body.presetId==='one'));
 });
