@@ -67,6 +67,26 @@ test('OPT-019 duration travels through Creative draft, proposal, preview, confir
   assert.match(template, /state\.creative\.targetDuration \}\} 秒/,'confirmed truth and header display server duration');
 });
 
+test('OPT-021 extraction keeps existing identities as suggestions instead of ADD and shows safe Skill codes', () => {
+  const code = ts.transpileModule(read('src/views/pilot/skillProposal.ts'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const module = { exports: {} };
+  new Function('module', 'exports', code)(module, module.exports);
+  const output = { candidates: [
+    { name: 'Dream Stream Logo', category: 'BRAND' },
+    { name: 'Blue luminous matter', category: 'FX' },
+  ], mergeSuggestions: [{ candidateIndex: 0, existingCanonicalKey: 'BRAND-001', reason: '已有真实 Logo' }] };
+  const proposal = module.exports.prepareAssetExtractionProposal(output, 1234);
+  assert.deepEqual(proposal.mergeSuggestions, [{ name: 'Dream Stream Logo', existingCanonicalKey: 'BRAND-001', reason: '已有真实 Logo' }]);
+  assert.deepEqual(proposal.changes, [{ operation: 'ADD', clientRef: 'candidate_1234_1', asset: output.candidates[1] }]);
+  const shell = read('src/views/pilot/PilotShell.vue');
+  assert.match(shell, /prepareAssetExtractionProposal\(result\.output,Date\.now\(\)\)/);
+  assert.match(shell, /错误代码：\$\{e\.code\.slice\("PILOT_"\.length\)\}/);
+  assert.match(shell, /已有素材身份的合并建议/);
+  assert.match(shell, /if\(switched\)\{[^}]*skillMergeSuggestions\.value=\[\]/,'switching projects clears proposal hints');
+});
+
 test('image composer uploads bytes, sends attachment IDs and requires reference preview plus confirm', () => {
   const panel = read('src/views/pilot/ProjectAgentPanel.vue');
   assert.match(panel, /type="file" accept="image\/png,image\/jpeg,image\/webp"/);

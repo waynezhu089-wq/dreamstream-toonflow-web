@@ -51,6 +51,7 @@
               <p v-for="r in state.agentReferences?.filter((x:any)=>['ASSET_BIBLE','BIND_SELECTED_ASSET'].includes(x.targetType) && (!x.targetKey || x.targetKey===selected?.key))" :key="r.id" class="muted">图片参考：{{ r.originalName }} · 尚未绑定为正式素材</p>
               <div class="toolbar"><button class="primary" :disabled="saving || !assetDraft.name" @click="previewAsset">预览素材变更</button><button v-if="selected" class="quiet" @click="retireAsset">退休此身份</button></div>
             </div><div v-else class="asset-empty">选择一个素材查看身份与参考，或添加新的候选。</div></div>
+          <div v-if="skillMergeSuggestions.length" class="preview"><h2>已有素材身份的合并建议</h2><p v-for="(suggestion,i) in skillMergeSuggestions" :key="i" class="muted">{{ suggestion.name }} → {{ suggestion.existingCanonicalKey }}：{{ suggestion.reason }}。不会自动新增或合并。</p><button class="quiet" @click="skillMergeSuggestions=[]">清除建议</button></div>
           <div v-if="assetChanges.length" class="preview"><h2>待确认的素材变更</h2><div v-for="change in assetChanges" :key="change.clientRef || change.canonicalKey" class="candidate"><template v-if="change.operation==='ADD'"><span class="eyebrow">候选 · {{ change.clientRef }}</span><div class="field-row"><label>名称<input v-model="change.asset.name" @input="assetPreview=null" /></label><label>类别<select v-model="change.asset.category" @change="assetPreview=null"><option v-for="c in categories" :key="c">{{ c }}</option></select></label></div><label>描述<textarea v-model="change.asset.description" @input="assetPreview=null" /></label><label>来源<select v-model="change.asset.sourcePolicy" @change="assetPreview=null"><option value="AI_ALLOWED">允许 AI 生成</option><option value="REAL_REQUIRED">必须上传真实素材</option></select></label></template><span v-else>{{ change.operation }} · {{ change.canonicalKey }}</span></div><button class="quiet" :disabled="saving" @click="previewAssetChanges">{{ assetPreview ? '重新预览' : '预览变更与重复建议' }}</button><template v-if="assetPreview"><p v-for="s in assetPreview.suggestions" :key="s.clientRef" class="muted">{{ s.possibleMatches.length ? `可能重复：${s.possibleMatches.join('、')}。不会自动合并。` : '无同名身份；仍请人工检查是否同一实体。' }}</p><button class="primary" :disabled="saving" @click="applyAsset">确认并应用</button></template><button class="quiet" @click="assetChanges=[];assetPreview=null">丢弃提案</button></div>
         </template>
         <template v-else-if="tab === 'storyboard'">
@@ -80,6 +81,7 @@ import projectStore from "@/stores/project";
 import { selectAdvertisementUnit } from "@/utils/advertisementUnit";
 import ProjectAgentPanel from "./ProjectAgentPanel.vue";
 import { handoffToProjectPage, type PilotHandoffTarget } from "./projectHandoff";
+import { prepareAssetExtractionProposal } from "./skillProposal";
 import { useStoryboardRevision } from "@/views/production/revision/coordinator";
 const router = useRouter();
 const categories = ["CHAR","ACC","PROP","PRODUCT","LOC","BRAND","UI","FX"];
@@ -90,7 +92,7 @@ const newProject = reactive({name:"",brief:"",targetDuration:30,aspectRatio:"16:
 const creativeDraft = reactive({brief:"",treatment:"",script:"",targetDuration:30});
 const creativeEditing = ref(false), creativeCandidateReason = ref("");
 const creativeFields = [{key:"brief",label:"Creative Brief"},{key:"treatment",label:"Treatment / 创意展开"},{key:"script",label:"Script / 旁白与结构"}] as const;
-const creativePreview = ref<any>(null), assetPreview = ref<any>(null), assetChanges = ref<any[]>([]), assetDraft = ref<any>(null), resolved = ref<any>(null), assetSourceVersion = ref<number|null>(null);
+const creativePreview = ref<any>(null), assetPreview = ref<any>(null), assetChanges = ref<any[]>([]), assetDraft = ref<any>(null), resolved = ref<any>(null), assetSourceVersion = ref<number|null>(null), skillMergeSuggestions = ref<{name:string;existingCanonicalKey:string;reason:string}[]>([]);
 const anchorsText = ref(""), preserveText = ref(""), forbiddenText = ref(""), ownerText = ref(""), variantText = ref("");
 const resolveText = ref(""), decisionText = ref("");
 const revision = useStoryboardRevision();
@@ -103,7 +105,7 @@ const planStatus = (key:string) => ({UNBOUND:"未绑定",SOURCE_INVALID:"来源�
 const api = async (path:string, body:object) => { const response:any = await axios.post(`/v04${path}`,body); return response.data; };
 function fail(e:any){ error.value=e?.message || "请求失败，请检查服务状态"; saving.value=false; }
 async function loadProjects(){ try{ projects.value=await api("/projects",{}); }catch(e){fail(e);} }
-async function open(projectId:number,scriptId:number){ saving.value=true;error.value="";try{const switched=!state.value || state.value.project.id!==projectId || state.value.creative.scriptId!==scriptId;const next=await api("/project/read",{projectId,scriptId});state.value=next;Object.assign(creativeDraft,{brief:next.creative.brief,treatment:next.creative.treatment,script:next.creative.script,targetDuration:next.creative.targetDuration});creativePreview.value=null;assetPreview.value=null;status.value="已同步";sessionStorage.setItem("v04PilotScope",JSON.stringify({projectId,scriptId}));if(switched){unitGeneration++;shotDrafts.value=[];}const generation=unitGeneration;revision.bind({current:()=>({projectId,scriptId,generation:unitGeneration}),isCurrent:(candidate)=>!!candidate && !!state.value && candidate.projectId===state.value.project.id && candidate.scriptId===state.value.creative.scriptId && candidate.generation===unitGeneration,invalidate:()=>{unitGeneration++;},refresh:reload});revision.setScope({projectId,scriptId,generation});}catch(e){fail(e);}finally{saving.value=false;} }
+async function open(projectId:number,scriptId:number){ saving.value=true;error.value="";try{const switched=!state.value || state.value.project.id!==projectId || state.value.creative.scriptId!==scriptId;const next=await api("/project/read",{projectId,scriptId});state.value=next;Object.assign(creativeDraft,{brief:next.creative.brief,treatment:next.creative.treatment,script:next.creative.script,targetDuration:next.creative.targetDuration});creativePreview.value=null;assetPreview.value=null;status.value="已同步";sessionStorage.setItem("v04PilotScope",JSON.stringify({projectId,scriptId}));if(switched){unitGeneration++;shotDrafts.value=[];assetChanges.value=[];skillMergeSuggestions.value=[];assetSourceVersion.value=null;}const generation=unitGeneration;revision.bind({current:()=>({projectId,scriptId,generation:unitGeneration}),isCurrent:(candidate)=>!!candidate && !!state.value && candidate.projectId===state.value.project.id && candidate.scriptId===state.value.creative.scriptId && candidate.generation===unitGeneration,invalidate:()=>{unitGeneration++;},refresh:reload});revision.setScope({projectId,scriptId,generation});}catch(e){fail(e);}finally{saving.value=false;} }
 async function reload(){if(state.value)await open(state.value.project.id,state.value.creative.scriptId);}
 async function createProject(){saving.value=true;error.value="";try{const created=await api("/project/create",{...newProject});await open(created.projectId,created.scriptId);tab.value="creative";}catch(e){fail(e);}finally{saving.value=false;}}
 function scope(){return{projectId:state.value.project.id,scriptId:state.value.creative.scriptId};}
@@ -121,9 +123,31 @@ function buildAsset(){return {...assetDraft.value,identityAnchors:lines(anchorsT
 async function previewAsset(){const a=buildAsset();assetSourceVersion.value=null;assetChanges.value=selected.value?[{operation:"EDIT",canonicalKey:selected.value.key,expectedRevision:state.value.assets.find((x:any)=>x.canonicalKey===selected.value?.key).revision,patch:a}]:[{operation:"ADD",clientRef:`asset_${Date.now()}`,asset:a}];await previewAssetChanges();}
 async function retireAsset(){if(!selected.value)return;assetChanges.value=[{operation:"RETIRE",canonicalKey:selected.value.key,expectedRevision:state.value.assets.find((x:any)=>x.canonicalKey===selected.value?.key).revision}];await previewAssetChanges();}
 async function previewAssetChanges(){saving.value=true;error.value="";try{assetPreview.value=await api("/assets/preview",{...scope(),changes:assetChanges.value,...(assetSourceVersion.value===null?{}:{sourceCreativeVersion:assetSourceVersion.value})});}catch(e){fail(e);}finally{saving.value=false;}}
-async function applyAsset(){saving.value=true;error.value="";try{await api("/assets/apply",{...scope(),changes:assetChanges.value,...(assetSourceVersion.value===null?{}:{sourceCreativeVersion:assetSourceVersion.value}),previewHash:assetPreview.value.previewHash});selected.value=null;assetDraft.value=null;assetChanges.value=[];assetPreview.value=null;assetSourceVersion.value=null;await reload();}catch(e){fail(e);}finally{saving.value=false;}}
+async function applyAsset(){saving.value=true;error.value="";try{await api("/assets/apply",{...scope(),changes:assetChanges.value,...(assetSourceVersion.value===null?{}:{sourceCreativeVersion:assetSourceVersion.value}),previewHash:assetPreview.value.previewHash});selected.value=null;assetDraft.value=null;assetChanges.value=[];assetPreview.value=null;assetSourceVersion.value=null;skillMergeSuggestions.value=[];await reload();}catch(e){fail(e);}finally{saving.value=false;}}
 async function resolve(){error.value="";try{resolved.value=await api("/assets/resolve",{...scope(),canonicalKeys:resolveText.value.split(',').map(x=>x.trim()).filter(Boolean)});}catch(e){fail(e);}}
-async function runSkill(method:"ASSET_EXTRACTION"|"ASSET_PROMPTS"|"STORYBOARD_BATCH"){if(!window.confirm("此操作会调用项目中配置的文本模型，可能产生费用。仅生成提案，不自动应用。继续吗？"))return;saving.value=true;error.value="";try{const result=await api("/skills/preview",{...scope(),method});if(method==="ASSET_EXTRACTION"){assetSourceVersion.value=result.sourceVersion;assetChanges.value=result.output.candidates.map((asset:any,i:number)=>({operation:"ADD",clientRef:`candidate_${Date.now()}_${i}`,asset}));assetPreview.value=null;}else if(method==="ASSET_PROMPTS"){assetSourceVersion.value=result.sourceVersion;assetChanges.value=result.output.prompts.map((item:any)=>({operation:"EDIT",canonicalKey:item.canonicalKey,expectedRevision:state.value.assets.find((a:any)=>a.canonicalKey===item.canonicalKey)?.revision,patch:{prompt:item.prompt}}));assetPreview.value=null;}else{shotDrafts.value=result.output.shots.map((shot:any)=>({...shot,localId:crypto.randomUUID(),canonicalKeys:shot.canonicalKeys.join(', '),primaryKey:shot.primaryKey||''}));tab.value='storyboard';}status.value=`${result.skillId} · 待人工确认`;}catch(e){fail(e);}finally{saving.value=false;}}
+async function runSkill(method:"ASSET_EXTRACTION"|"ASSET_PROMPTS"|"STORYBOARD_BATCH"){
+  if(!window.confirm("此操作会调用项目中配置的文本模型，可能产生费用。仅生成提案，不自动应用。继续吗？"))return;
+  saving.value=true;error.value="";
+  try{
+    const result=await api("/skills/preview",{...scope(),method});
+    if(method==="ASSET_EXTRACTION"){
+      assetSourceVersion.value=result.sourceVersion;
+      const proposal=prepareAssetExtractionProposal(result.output,Date.now());
+      skillMergeSuggestions.value=proposal.mergeSuggestions;
+      assetChanges.value=proposal.changes;
+      assetPreview.value=null;
+    }else if(method==="ASSET_PROMPTS"){
+      assetSourceVersion.value=result.sourceVersion;skillMergeSuggestions.value=[];
+      assetChanges.value=result.output.prompts.map((item:any)=>({operation:"EDIT",canonicalKey:item.canonicalKey,expectedRevision:state.value.assets.find((a:any)=>a.canonicalKey===item.canonicalKey)?.revision,patch:{prompt:item.prompt}}));assetPreview.value=null;
+    }else{
+      shotDrafts.value=result.output.shots.map((shot:any)=>({...shot,localId:crypto.randomUUID(),canonicalKeys:shot.canonicalKeys.join(', '),primaryKey:shot.primaryKey||''}));tab.value='storyboard';
+    }
+    status.value=`${result.skillId} · 待人工确认`;
+  }catch(e:any){
+    if(typeof e?.code==="string" && e.code.startsWith("PILOT_SKILL_"))error.value=`${e.message} · 错误代码：${e.code.slice("PILOT_".length)}`;
+    else fail(e);
+  }finally{saving.value=false;}
+}
 function addShot(){shotDrafts.value.push({localId:crypto.randomUUID(),duration:3,productionMode:"AI_TEXT_TO_IMAGE",prompt:"",videoDesc:"",canonicalKeys:"",primaryKey:""});}
 async function previewShots(){saving.value=true;error.value="";try{const allKeys=[...new Set(shotDrafts.value.flatMap(s=>[...s.canonicalKeys.split(',').map((k:string)=>k.trim()).filter(Boolean),...(s.primaryKey.trim()?[s.primaryKey.trim()]:[])]))] as string[];const resolved=allKeys.length?await api("/assets/resolve",{...scope(),canonicalKeys:allKeys}):{resolved:[]};const ids=new Map(resolved.resolved.map((x:any)=>[x.canonicalKey,x.assetId]));const operations=shotDrafts.value.map((shot,i)=>{const keys=[...new Set(shot.canonicalKeys.split(',').map((k:string)=>k.trim()).filter(Boolean))] as string[];const linkedAssetIds=keys.map(k=>Number(ids.get(k)));const primaryAssetId=shot.primaryKey.trim()?Number(ids.get(shot.primaryKey.trim())):null;return{type:"ADD" as const,clientRef:`shot_${i}_${shot.localId.replaceAll('-','')}`,storyboard:{track:null,duration:Number(shot.duration),prompt:shot.prompt,videoDesc:shot.videoDesc,productionMode:shot.productionMode,primaryAssetId,referenceAssetIds:[],referenceAssetGroupIds:[],linkedAssetIds}};});revision.open("PILOT_BATCH",operations);await revision.previewDraft();}catch(e){fail(e);}finally{saving.value=false;}}
 async function confirmShots(){await revision.confirm();if(revision.state.status==="APPLIED")shotDrafts.value=[];}
