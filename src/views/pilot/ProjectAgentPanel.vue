@@ -8,13 +8,17 @@
     <div v-if="creativeMode" class="quick-actions"><button :disabled="busy" @click="suggest('brief')">提出 Brief 修改</button><button :disabled="busy" @click="suggest('treatment')">生成 Treatment 提案</button><button :disabled="busy" @click="suggest('script')">生成 Script 提案</button></div>
     <div ref="feed" class="feed" role="log" aria-live="polite">
       <p v-if="!messages.length" class="empty">先聊创意。讨论和图片会跟随这个项目；Agent 的建议不会直接改动正式内容。</p>
-      <div v-for="m in messages" :key="m.id" class="bubble" :class="m.role">
-        <small>{{ m.role === "user" ? "你" : "Project Agent" }}</small>
-        <p>{{ m.content }}</p>
+      <div v-for="m in messages" :key="m.id" class="turn" :class="[m.role, m.phase || 'complete']">
+        <small class="turn-label">{{ m.role === "user" ? "你" : "Project Agent" }}</small>
+        <div v-if="m.phase === 'thinking' || m.phase === 'checking'" class="turn-progress" role="status"><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ m.phase === 'checking' ? '正在检查消息状态…' : 'Project Agent 正在思考…' }}</div>
+        <div v-if="m.phase === 'answering'" class="turn-progress" role="status">正在回答…</div>
+        <div v-if="m.error" class="turn-error" role="alert"><span>{{ m.error }}</span><div class="turn-actions"><button v-if="m.retryable" type="button" :disabled="busy" @click="retryRequest(m.requestId!)">重试</button><button v-if="m.checkable" type="button" :disabled="busy" @click="checkStatus(m.requestId!)">检查状态</button></div></div>
+        <p v-if="m.role === 'user'" class="user-content">{{ m.content }}</p>
+        <MdPreview v-else-if="m.content && m.phase !== 'thinking' && m.phase !== 'checking'" class="agent-content" :theme="markdownTheme" :modelValue="m.content" preview-only preview-theme="github" />
         <div v-for="a in m.attachments || []" :key="a.id" class="attachment">
           <img v-if="imageUrls[a.id]" :src="imageUrls[a.id]" :alt="a.name" />
           <span>{{ a.name }} · 对话参考</span>
-          <small v-if="a.references?.length">已确认：{{ a.references.map(r => referenceLabel(r.targetType)).join("、") }}</small>
+          <small v-if="a.references?.length" class="accepted">已确认：{{ a.references.map(r => referenceLabel(r.targetType)).join("、") }}</small>
           <div class="reference-actions"><select v-model="referenceChoices[a.id]" :aria-label="`图片 ${a.name} 的用途`"><option value="">选择图片用途…</option><option value="PROJECT_REFERENCE">加入项目参考</option><option value="ASSET_BIBLE">加入素材圣经参考</option><option v-if="selected?.type === 'ASSET'" value="BIND_SELECTED_ASSET">关联选中素材作参考</option><option v-if="selected?.type === 'ASSET'" value="PRODUCTION_ASSET">上传为选中素材的正式图片</option><option v-if="selected?.type === 'SHOT'" value="SHOT_REFERENCE">用作选中镜头参考</option></select><button :disabled="busy || !referenceChoices[a.id]" @click="previewReference(a.id)">预览</button></div>
         </div>
       </div>
@@ -29,34 +33,56 @@
   </aside>
 </template>
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
+import { MdPreview } from "md-editor-v3";
 import axios from "@/utils/axios";
+import settingStore from "@/stores/setting";
 type Attachment = { id: string; name: string; mimeType: string; references?: { targetType: string }[] };
-type Message = { id: string; role: string; content: string; attachments?: Attachment[] };
+type Phase = "thinking" | "answering" | "checking" | "failed" | "uncertain" | "complete";
+type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; error?: string; retryable?: boolean; checkable?: boolean };
+type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; knownFailure?: string };
 type Target = "brief" | "treatment" | "script";
 const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean }>();
 const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string } }): void; (e: "production-asset-applied"): void }>();
-const messages = ref<Message[]>([]), draft = ref(""), error = ref(""), busy = ref(false), feed = ref<HTMLElement | null>(null);
+const { themeSetting } = storeToRefs(settingStore());
+const markdownTheme = computed<"light" | "dark">(() => themeSetting.value.mode === "auto" ? (document.documentElement.getAttribute("theme-mode") === "dark" ? "dark" : "light") : themeSetting.value.mode);
+const historyMessages = ref<Message[]>([]), localMessages = ref<Message[]>([]), messages = computed(() => [...historyMessages.value, ...localMessages.value]);
+const draft = ref(""), error = ref(""), busy = ref(false), feed = ref<HTMLElement | null>(null);
 const pendingImages = ref<File[]>([]), imageUrls = ref<Record<string,string>>({}), referenceChoices = ref<Record<string,string>>({}), referencePreview = ref<any>(null);
-let generation = 0;
+const submissions = new Map<string, Submission>();
+let generation = 0, historyGeneration = 0;
 function context() { return { projectId: props.projectId, scriptId: props.scriptId, currentStage: props.stage, currentRoute: props.routeName, selectedObject: props.selected }; }
 function clearImages() { for (const url of Object.values(imageUrls.value)) URL.revokeObjectURL(url); imageUrls.value = {}; }
-async function load() {
-  const own = ++generation;
+function scrollToLatest() { void nextTick(() => feed.value?.scrollTo({ top: feed.value.scrollHeight })); }
+function localAgent(requestId: string) { return localMessages.value.find(m => m.id === `local-agent:${requestId}`); }
+function removeLocalUser(requestId: string) {
+  const localImages = localMessages.value.find(m => m.id === `local-user:${requestId}`)?.attachments || [];
+  for (const image of localImages) { if (imageUrls.value[image.id]) URL.revokeObjectURL(imageUrls.value[image.id]); delete imageUrls.value[image.id]; }
+  localMessages.value = localMessages.value.filter(m => m.id !== `local-user:${requestId}`);
+}
+function removeLocal(requestId: string) {
+  removeLocalUser(requestId);
+  localMessages.value = localMessages.value.filter(m => m.requestId !== requestId);
+  submissions.delete(requestId);
+}
+async function load(showError = true): Promise<Message[] | null> {
+  const own = generation, call = ++historyGeneration, projectId = props.projectId;
   try {
-    const response: any = await axios.post("/v04/agent/history", { projectId: props.projectId, scriptId: props.scriptId });
-    if (own !== generation) return;
-    messages.value = response.data.messages;
-    const attachments = messages.value.flatMap(m => m.attachments || []);
+    const response: any = await axios.post("/v04/agent/history", { projectId, scriptId: props.scriptId });
+    if (own !== generation || call !== historyGeneration) return null;
+    historyMessages.value = response.data.messages;
+    const attachments = historyMessages.value.flatMap(m => m.attachments || []);
     await Promise.all(attachments.map(async a => {
       if (imageUrls.value[a.id]) return;
       try {
-        const blob: Blob = await axios.get(`/v04/agent/image/${props.projectId}/${a.id}`, { responseType: "blob" });
-        if (own === generation) imageUrls.value[a.id] = URL.createObjectURL(blob);
+        const blob: Blob = await axios.get(`/v04/agent/image/${projectId}/${a.id}`, { responseType: "blob" });
+        if (own === generation && call === historyGeneration) imageUrls.value[a.id] = URL.createObjectURL(blob);
       } catch { /* Keep the message even if an image cannot be read. */ }
     }));
-    await nextTick(); if (own === generation) feed.value?.scrollTo({ top: feed.value.scrollHeight });
-  } catch (e: any) { if (own === generation) error.value = e?.message || "对话读取失败"; }
+    if (own === generation && call === historyGeneration) { scrollToLatest(); return historyMessages.value; }
+    return null;
+  } catch (e: any) { if (showError && own === generation && call === historyGeneration) error.value = e?.message || "对话读取失败"; return null; }
 }
 function addFiles(files: FileList | File[]) {
   for (const file of Array.from(files)) {
@@ -68,20 +94,80 @@ function addFiles(files: FileList | File[]) {
 function onFiles(event: Event) { const input = event.target as HTMLInputElement; if (input.files) addFiles(input.files); input.value = ""; }
 function onDrop(event: DragEvent) { if (event.dataTransfer?.files) addFiles(event.dataTransfer.files); }
 function asDataUrl(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); }); }
+async function submit(request: Submission) {
+  const own = request.generation;
+  try {
+    for (let i = request.attachmentIds.length; i < request.files.length; i++) {
+      const file = request.files[i];
+      const response: any = await axios.post("/v04/agent/image/upload", { context: request.ctx, name: file.name, dataUrl: await asDataUrl(file) });
+      request.attachmentIds.push(response.data.id);
+    }
+    if (own !== generation) return;
+    request.chatDispatched = true;
+    const response: any = await axios.post("/v04/agent/chat", { context: request.ctx, message: request.content, attachmentIds: request.attachmentIds });
+    if (own !== generation) return;
+    const agent = localAgent(request.id);
+    if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.error = undefined; }
+    scrollToLatest();
+    if (await load(false)) removeLocal(request.id);
+    else if (agent) agent.phase = "complete";
+  } catch (e: any) {
+    if (own !== generation) return;
+    const agent = localAgent(request.id);
+    if (agent) {
+      const persisted = ["PILOT_IMAGE_MODEL_UNSUPPORTED", "PILOT_AGENT_MODEL_FAILED"].includes(e?.code);
+      request.knownFailure = persisted ? (e?.message || "模型未能完成回复") : undefined;
+      const safeRetry = !request.chatDispatched || ["PILOT_INPUT_INVALID", "PILOT_UNIT_REQUIRED", "PILOT_FORBIDDEN"].includes(e?.code);
+      agent.phase = request.chatDispatched && !persisted && !safeRetry ? "uncertain" : "failed";
+      agent.content = "";
+      agent.error = `${e?.message || "连接或处理失败"}${agent.phase === "uncertain" ? "。结果尚不确定，请先检查状态，避免重复发送。" : ""}`;
+      agent.retryable = safeRetry;
+      agent.checkable = request.chatDispatched;
+      scrollToLatest();
+    }
+  } finally { if (own === generation) busy.value = false; }
+}
 async function send() {
   if ((!draft.value.trim() && !pendingImages.value.length) || busy.value) return;
-  const own = generation, content = draft.value.trim(), files = [...pendingImages.value], ctx = context();
-  error.value = ""; busy.value = true;
+  const id = crypto.randomUUID(), content = draft.value.trim(), files = [...pendingImages.value];
+  const request: Submission = { id, generation, startedAt: Date.now(), content, files, ctx: context(), attachmentIds: [], baselineIds: new Set(historyMessages.value.map(m => m.id)), chatDispatched: false };
+  submissions.set(id, request);
+  const attachments = files.map((file, i) => {
+    const imageId = `local-image:${id}:${i}`;
+    imageUrls.value[imageId] = URL.createObjectURL(file);
+    return { id: imageId, name: file.name, mimeType: file.type };
+  });
+  localMessages.value.push(
+    { id: `local-user:${id}`, role: "user", content: content || "[图片参考]", attachments, requestId: id },
+    { id: `local-agent:${id}`, role: "assistant", content: "", phase: "thinking", requestId: id },
+  );
+  draft.value = ""; pendingImages.value = []; error.value = ""; busy.value = true; scrollToLatest();
+  await submit(request);
+}
+async function retryRequest(requestId: string) {
+  const request = submissions.get(requestId), agent = localAgent(requestId);
+  if (!request || !agent?.retryable || busy.value) return;
+  request.chatDispatched = false;
+  request.knownFailure = undefined;
+  agent.phase = "thinking"; agent.content = ""; agent.error = undefined; agent.retryable = false; agent.checkable = false;
+  busy.value = true; scrollToLatest(); await submit(request);
+}
+async function checkStatus(requestId: string) {
+  const request = submissions.get(requestId), agent = localAgent(requestId);
+  if (!request || !agent || busy.value) return;
+  busy.value = true; agent.phase = "checking"; agent.error = undefined;
   try {
-    const attachmentIds: string[] = [];
-    for (const file of files) {
-      const response: any = await axios.post("/v04/agent/image/upload", { context: ctx, name: file.name, dataUrl: await asDataUrl(file) });
-      attachmentIds.push(response.data.id);
-    }
-    await axios.post("/v04/agent/chat", { context: ctx, message: content, attachmentIds });
-    if (own === generation) { draft.value = ""; pendingImages.value = []; await load(); }
-  } catch (e: any) { if (own === generation) { if (["PILOT_IMAGE_MODEL_UNSUPPORTED","PILOT_AGENT_MODEL_FAILED"].includes(e?.code)) { draft.value = ""; pendingImages.value = []; } error.value = e?.message || "消息处理失败"; await load(); } }
-  finally { busy.value = false; }
+    const history = await load(false);
+    if (!history) { agent.phase = request.knownFailure ? "failed" : "uncertain"; agent.error = request.knownFailure ? `${request.knownFailure}；暂时无法读取服务器对话。` : "暂时无法读取服务器对话，请稍后再检查；不要重复发送。"; return; }
+    const matchingUserIndexes = history.flatMap((m, index) => !request.baselineIds.has(m.id) && m.role === "user" && m.content === (request.content || "[图片参考]") && Number(m.createTime) >= request.startedAt - 1000 && request.attachmentIds.every(id => m.attachments?.some(a => a.id === id)) ? [index] : []);
+    if (matchingUserIndexes.length === 1) {
+      const userIndex = matchingUserIndexes[0];
+      removeLocalUser(requestId);
+      if (history[userIndex + 1]?.role === "assistant") { removeLocal(requestId); return; }
+      agent.phase = "failed"; agent.error = request.knownFailure ? `${request.knownFailure}；消息已保留在对话中。` : "服务器已收到这条消息，但尚未看到完整回复。请稍后检查状态，避免重复发送。";
+    } else { agent.phase = "uncertain"; agent.error = matchingUserIndexes.length > 1 ? "服务器记录中有多条相同消息，暂时无法确认哪条对应本次请求；请勿重复发送。" : "历史中尚未找到这条消息；原请求可能仍在处理。请稍后再检查，不要重复发送。"; }
+    agent.retryable = false; agent.checkable = true;
+  } finally { busy.value = false; scrollToLatest(); }
 }
 async function suggest(target: Target) {
   if (busy.value || !window.confirm("生成创意提案会调用当前项目配置的文本模型，可能产生费用。继续吗？")) return;
@@ -106,15 +192,19 @@ async function applyReference() {
   catch (e: any) { error.value = e?.message || "图片用途确认失败"; }
   finally { busy.value = false; }
 }
-onMounted(load);
-watch(() => props.projectId, () => { clearImages(); messages.value = []; referencePreview.value = null; load(); });
-onBeforeUnmount(clearImages);
+onMounted(() => { void load(); });
+watch(() => props.projectId, () => { generation++; historyGeneration++; clearImages(); historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; void load(); });
+onBeforeUnmount(() => { generation++; clearImages(); });
 </script>
 <style scoped>
-.agent{height:100%;min-height:0;display:flex;flex-direction:column;border-left:1px solid var(--td-component-border);background:var(--td-bg-color-container);color:var(--td-text-color-primary)}
+.agent{--user-ink:color-mix(in srgb,#779dce 72%,var(--td-text-color-primary));--agent-ink:color-mix(in srgb,#a792c1 72%,var(--td-text-color-primary));height:100%;min-height:0;display:flex;flex-direction:column;border-left:1px solid var(--td-component-border);background:var(--td-bg-color-container);color:var(--td-text-color-primary)}
 header{display:flex;align-items:center;justify-content:space-between;padding:1.25rem 1.2rem .75rem}header strong{font-size:1.05rem;letter-spacing:-.02em}header small{display:block;margin-top:.2rem;color:var(--td-text-color-secondary)}.status{font-size:.73rem;color:var(--td-brand-color);border:1px solid var(--td-component-border);padding:.25rem .55rem;border-radius:999px}.context{margin:0;padding:.35rem 1.2rem .8rem;color:var(--td-text-color-secondary);font-size:.77rem;border-bottom:1px solid var(--td-component-border)}
-.feed{min-height:0;flex:1;overflow-y:auto;padding:1rem 1.2rem;scrollbar-width:thin}.empty{color:var(--td-text-color-secondary);line-height:1.6}.bubble{margin:0 0 1.25rem}.bubble small{color:var(--td-text-color-secondary);font-size:.73rem}.bubble p{white-space:pre-wrap;line-height:1.55;margin:.35rem 0}.bubble.user{background:var(--td-bg-color-secondarycontainer);border-radius:.75rem;padding:.75rem}.error{color:var(--td-error-color);padding:.5rem 1.2rem;font-size:.83rem}.composer{padding:1rem;border-top:1px solid var(--td-component-border)}textarea{box-sizing:border-box;width:100%;resize:vertical;min-height:5rem;border:1px solid var(--td-component-border);border-radius:.6rem;background:var(--td-bg-color-container);color:var(--td-text-color-primary);font:inherit;padding:.7rem}.compose-actions{display:flex;justify-content:space-between;align-items:center;margin-top:.5rem}.compose-actions small{color:var(--td-text-color-secondary)}button{border:0;background:var(--td-brand-color);color:#fff;border-radius:.4rem;padding:.5rem .9rem;cursor:pointer}button:disabled{opacity:.45;cursor:default}
+.feed{min-height:0;flex:1;overflow-y:auto;padding:1rem 1.2rem;scrollbar-width:thin}.empty{color:var(--td-text-color-secondary);line-height:1.6}
+.turn{margin:0 0 1.2rem}.turn-label{display:block;font-size:.72rem;font-weight:700;letter-spacing:.01em}.turn.user{box-sizing:border-box;width:fit-content;max-width:92%;margin-left:auto;padding:.65rem .8rem;border:1px solid color-mix(in srgb,var(--user-ink) 30%,var(--td-component-border));border-radius:.6rem;background:color-mix(in srgb,var(--user-ink) 9%,var(--td-bg-color-container))}.turn.user .turn-label{color:var(--user-ink)}.user-content{white-space:pre-wrap;line-height:1.55;margin:.35rem 0 0}
+.turn.assistant{margin-top:1.55rem;padding:1rem 0 .15rem .85rem;border-top:1px solid color-mix(in srgb,var(--agent-ink) 22%,var(--td-component-border));border-left:2px solid color-mix(in srgb,var(--agent-ink) 42%,var(--td-component-border))}.turn.assistant .turn-label{color:var(--agent-ink)}.agent-content{margin-top:.55rem;background:transparent;color:var(--td-text-color-primary)}.agent-content :deep(.md-editor-preview-wrapper){padding:0;background:transparent}.agent-content :deep(.md-editor-preview){color:var(--td-text-color-primary)}.agent-content :deep(h1),.agent-content :deep(h2),.agent-content :deep(h3){line-height:1.35;margin:1.15em 0 .45em}.agent-content :deep(h1){font-size:1.2rem}.agent-content :deep(h2){font-size:1.08rem}.agent-content :deep(h3){font-size:.98rem}.agent-content :deep(p){line-height:1.65}
+.turn-progress{display:flex;align-items:center;gap:.5rem;margin-top:.5rem;color:var(--td-text-color-secondary);font-size:.83rem}.thinking-dots{display:inline-flex;align-items:center;gap:3px}.thinking-dots i{width:4px;height:4px;border-radius:50%;background:currentColor;animation:agent-pulse 1.2s ease-in-out infinite}.thinking-dots i:nth-child(2){animation-delay:.16s}.thinking-dots i:nth-child(3){animation-delay:.32s}@keyframes agent-pulse{0%,70%,100%{opacity:.32}35%{opacity:1}}@media(prefers-reduced-motion:reduce){.thinking-dots i{animation:none}}
+.turn-error{margin-top:.6rem;color:var(--td-error-color);font-size:.82rem;line-height:1.5}.turn-actions{display:flex;gap:.45rem;margin-top:.5rem}.turn-actions button{background:transparent;color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.73rem;padding:.3rem .55rem}.error{color:var(--td-error-color);padding:.5rem 1.2rem;font-size:.83rem}.composer{padding:1rem;border-top:1px solid var(--td-component-border)}textarea{box-sizing:border-box;width:100%;resize:vertical;min-height:5rem;border:1px solid var(--td-component-border);border-radius:.6rem;background:var(--td-bg-color-container);color:var(--td-text-color-primary);font:inherit;padding:.7rem}.compose-actions{display:flex;justify-content:space-between;align-items:center;margin-top:.5rem}.compose-actions small{color:var(--td-text-color-secondary)}button{border:0;background:var(--td-brand-color);color:#fff;border-radius:.4rem;padding:.5rem .9rem;cursor:pointer}button:disabled{opacity:.45;cursor:default}
 .quick-actions{display:flex;flex-wrap:wrap;gap:.35rem;padding:.8rem 1.2rem;border-bottom:1px solid var(--td-component-border)}.quick-actions button,.reference-actions button,.confirm-reference button{background:var(--td-bg-color-secondarycontainer);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);border-radius:.35rem;padding:.3rem .45rem;cursor:pointer;font-size:.72rem}
-.attachment{margin:.5rem 0;padding:.35rem 0;border-top:1px solid var(--td-component-border)}.attachment img{display:block;max-width:100%;max-height:12rem;object-fit:contain;border-radius:.35rem;margin:.35rem 0}.attachment span,.attachment small{display:block;font-size:.72rem}.reference-actions{display:flex;gap:.3rem;margin-top:.4rem}.reference-actions select{min-width:0;flex:1;background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);border-radius:.3rem;font-size:.72rem}
+.attachment{margin:.5rem 0;padding:.35rem 0;border-top:1px solid var(--td-component-border)}.attachment img{display:block;max-width:100%;max-height:12rem;object-fit:contain;border-radius:.35rem;margin:.35rem 0}.attachment span,.attachment small{display:block;font-size:.72rem}.attachment .accepted{color:var(--td-success-color)}.reference-actions{display:flex;gap:.3rem;margin-top:.4rem}.reference-actions select{min-width:0;flex:1;background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);border-radius:.3rem;font-size:.72rem}
 .confirm-reference{padding:.7rem 1.2rem;border-top:1px solid var(--td-component-border);font-size:.79rem}.confirm-reference p{color:var(--td-text-color-secondary);line-height:1.45}.confirm-reference button{margin-right:.4rem}.attach{font-size:.78rem;cursor:pointer;color:var(--td-brand-color)}.attach input{display:none}.pending-images{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem}.pending-images span{font-size:.7rem;background:var(--td-bg-color-secondarycontainer);border-radius:.3rem;padding:.25rem}.pending-images button{background:none;border:0;color:var(--td-text-color-primary);cursor:pointer}
 </style>
