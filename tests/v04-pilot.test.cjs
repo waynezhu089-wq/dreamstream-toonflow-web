@@ -53,6 +53,20 @@ test('Creative is authoritative content first, with Agent proposals entering pre
   assert.doesNotMatch(pilot, /class="context-id">\{\{ state\.project\.id/);
 });
 
+test('OPT-019 duration travels through Creative draft, proposal, preview, confirm and refreshed truth', () => {
+  const pilot = read('src/views/pilot/PilotShell.vue');
+  const template = parse(pilot, { filename: 'PilotShell.vue' }).descriptor.template.content;
+  assert.match(pilot, /reactive\(\{brief:"",treatment:"",script:"",targetDuration:30\}\)/);
+  assert.match(pilot, /targetDuration:next\.creative\.targetDuration/,'project read restores the confirmed duration');
+  assert.match(template, /目标时长（秒）<input v-model\.number="creativeDraft\.targetDuration" type="number" min="1" max="600" step="1" @input="creativePreview=null"/);
+  assert.match(pilot, /creativeDraft\.targetDuration=proposal\.candidate\.proposedTargetDuration \?\? state\.value\.creative\.targetDuration/,'null proposal keeps confirmed duration instead of stale draft state');
+  assert.match(pilot, /api\("\/creative\/preview",\{\.\.\.scope\(\),\.\.\.creativeDraft,expectedVersion:state\.value\.creative\.version\}\)/);
+  assert.match(template, /creativePreview\.current\.targetDuration/);
+  assert.match(template, /creativePreview\.proposed\.targetDuration/);
+  assert.match(pilot, /api\("\/creative\/apply",\{\.\.\.scope\(\),\.\.\.creativeDraft,expectedVersion:state\.value\.creative\.version,previewHash:creativePreview\.value\.previewHash\}\);await reload\(\)/);
+  assert.match(template, /state\.creative\.targetDuration \}\} 秒/,'confirmed truth and header display server duration');
+});
+
 test('image composer uploads bytes, sends attachment IDs and requires reference preview plus confirm', () => {
   const panel = read('src/views/pilot/ProjectAgentPanel.vue');
   assert.match(panel, /type="file" accept="image\/png,image\/jpeg,image\/webp"/);
