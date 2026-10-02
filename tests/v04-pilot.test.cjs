@@ -37,6 +37,35 @@ test('Agent follows project across pages without changing production authority',
   assert.match(production, /v-if="!isV04Pilot"/);
 });
 
+test('Creative is authoritative content first, with Agent proposals entering preview before apply', () => {
+  const pilot = read('src/views/pilot/PilotShell.vue');
+  const panel = read('src/views/pilot/ProjectAgentPanel.vue');
+  assert.match(pilot, /state\.creative\[field\.key\]/);
+  assert.match(pilot, /v-if="creativeEditing" class="editor"/);
+  assert.match(panel, /suggest\('brief'\)/);
+  assert.match(panel, /suggest\('treatment'\)/);
+  assert.match(panel, /suggest\('script'\)/);
+  assert.match(pilot, /@creative-candidate="onCreativeCandidate"/);
+  assert.match(pilot, /creativeDraft\[proposal\.target\]=proposal\.candidate\.proposedText/);
+  assert.match(pilot, /await previewCreative\(\)/);
+  assert.match(pilot, /previewHash:creativePreview\.value\.previewHash/);
+  assert.doesNotMatch(pilot, /class="context-id">\{\{ state\.project\.id/);
+});
+
+test('image composer uploads bytes, sends attachment IDs and requires reference preview plus confirm', () => {
+  const panel = read('src/views/pilot/ProjectAgentPanel.vue');
+  assert.match(panel, /type="file" accept="image\/png,image\/jpeg,image\/webp"/);
+  assert.match(panel, /@drop\.prevent="onDrop"/);
+  assert.match(panel, /await asDataUrl\(file\)/);
+  assert.match(panel, /post\("\/v04\/agent\/image\/upload"/);
+  assert.match(panel, /post\("\/v04\/agent\/chat", \{ context: ctx, message: content, attachmentIds \}\)/);
+  assert.match(panel, /responseType: "blob"/);
+  assert.match(panel, /post\("\/v04\/agent\/reference\/preview"/);
+  assert.match(panel, /post\("\/v04\/agent\/reference\/apply"/);
+  assert.match(panel, /previewHash: p\.previewHash/);
+  assert.match(panel, /PRODUCTION_ASSET/);
+});
+
 test('pilot login selects the isolated API before the first request and enters Creative', () => {
   const app = read('src/App.vue');
   const login = read('src/pages/login/index.vue');

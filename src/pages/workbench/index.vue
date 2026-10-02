@@ -75,7 +75,7 @@
   <div v-if="pilotScope && project?.id && Number(project.id) === pilotScope.projectId" class="pilot-agent-dock">
     <button class="pilot-agent-toggle" @click="pilotAgentOpen = !pilotAgentOpen">{{ pilotAgentOpen ? "关闭" : "打开" }} Project Agent</button>
     <div v-if="pilotAgentOpen" class="pilot-agent-panel" @pointerdown.stop @mousedown.stop @wheel.stop @click.stop>
-      <ProjectAgentPanel :project-id="pilotScope.projectId" :script-id="pilotScope.scriptId" :stage="route.path" :route-name="route.fullPath" :selected="null" />
+      <ProjectAgentPanel :project-id="pilotScope.projectId" :script-id="pilotUnitId || pilotScope.scriptId" :stage="route.path" :route-name="route.fullPath" :selected="pilotSelected" />
     </div>
   </div>
 </template>
@@ -92,6 +92,14 @@ const pilotAgentOpen = ref(true);
 const pilotScope = computed(() => {
   try { const value = JSON.parse(sessionStorage.getItem("v04PilotScope") || "{}"); return Number.isSafeInteger(value.projectId) && Number.isSafeInteger(value.scriptId) ? value as { projectId: number; scriptId: number } : null; }
   catch { return null; }
+});
+const pilotUnitId = computed(() => currentAdvertisementUnit(pilotScope.value?.projectId, route.query.scriptId) || pilotScope.value?.scriptId || null);
+const pilotSelected = computed(() => {
+  const shot = Number(route.query.storyboardId);
+  if (Number.isSafeInteger(shot) && shot > 0) return { type: "SHOT" as const, key: String(shot) };
+  const asset = route.query.assetKey;
+  if (typeof asset === "string" && asset.length <= 128) return { type: "ASSET" as const, key: asset };
+  return null;
 });
 import settingStore from "@/stores/setting";
 import { NotifyPlugin } from "tdesign-vue-next";
