@@ -22,6 +22,9 @@ import { useI18n } from "vue-i18n";
 
 const { locale } = useI18n();
 const { baseUrl, isElectron } = storeToRefs(settingStore());
+// Apply the pilot endpoint before the login view can send its first request.
+// getPort() may wait on a desktop-only protocol in a normal browser.
+if (window.location.port === "50189") baseUrl.value = "http://127.0.0.1:10589/api";
 import { config } from "md-editor-v3";
 
 const loading = ref(true);

@@ -36,3 +36,12 @@ test('Agent follows project across pages without changing production authority',
   assert.match(workbench, /<ProjectAgentPanel :project-id="pilotScope\.projectId"/);
   assert.match(production, /v-if="!isV04Pilot"/);
 });
+
+test('pilot login selects the isolated API before the first request and enters Creative', () => {
+  const app = read('src/App.vue');
+  const login = read('src/pages/login/index.vue');
+  const router = read('src/router/index.ts');
+  assert.match(app, /if \(window\.location\.port === "50189"\) baseUrl\.value = "http:\/\/127\.0\.0\.1:10589\/api"/);
+  assert.match(login, /Router\.push\(window\.location\.port === "50189" \? "\/pilot" : "\/project"\)/);
+  assert.match(router, /path: "\/pilot",\s*component: \(\) => import\("@\/views\/pilot\/PilotShell\.vue"\)/);
+});
