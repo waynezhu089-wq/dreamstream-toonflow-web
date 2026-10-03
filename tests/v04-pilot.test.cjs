@@ -32,7 +32,8 @@ test('OPT-027A asset card opens editable Visual Spec proposal with preview/confi
   assert.match(panel, /api\('\/visual-spec\/propose'/);
   assert.match(panel, /api\('\/visual-spec\/preview'/);
   assert.match(panel, /api\('\/visual-spec\/apply'/);
-  assert.match(panel, /sourceAssetRevision:props\.asset\.revision,spec:draft\.value,previewHash:preview\.value\.previewHash/);
+  assert.match(panel, /sourceAssetRevision:token\.revision,spec:draft\.value,previewHash:preview\.value\.previewHash/);
+  assert.match(panel, /Number\(token\.revision\)!==Number\(props\.asset\.revision\)/);
   assert.match(panel, /promptBuilds\.find\(item=>item\.canonicalKey===props\.asset\.canonicalKey&&item\.effectiveStatus==='READY'\)/);
   assert.doesNotMatch(panel, /Comfy|image\.generate|\/production\/storyboard\/batchGenerateImage/);
 });
@@ -405,13 +406,14 @@ test('image composer uploads bytes, sends attachment IDs and requires reference 
   assert.match(panel, /PRODUCTION_ASSET/);
 });
 
-test('pilot login selects the isolated API before the first request and enters Creative', () => {
+test('pilot login selects the isolated API before the first request and enters Studio, with Professional bookmark redirect', () => {
   const app = read('src/App.vue');
   const login = read('src/pages/login/index.vue');
   const router = read('src/router/index.ts');
   assert.match(app, /if \(window\.location\.port === "50189"\) baseUrl\.value = "http:\/\/127\.0\.0\.1:10589\/api"/);
-  assert.match(login, /Router\.push\(window\.location\.port === "50189" \? "\/pilot" : "\/project"\)/);
-  assert.match(router, /path: "\/pilot",\s*component: \(\) => import\("@\/views\/pilot\/PilotShell\.vue"\)/);
+  assert.match(login, /Router\.push\(window\.location\.port === "50189" \? "\/studio" : "\/project"\)/);
+  assert.match(router, /path: "\/pilot",\s*redirect: "\/professional"/);
+  assert.match(router, /path: "\/professional",\s*component: \(\) => import\("@\/views\/pilot\/PilotShell\.vue"\)/);
 });
 
 test('Assets and Video/Edit handoff load the real general project route before navigating', async () => {

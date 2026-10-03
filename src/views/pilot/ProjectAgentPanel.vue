@@ -47,7 +47,7 @@ type Message = { id: string; role: string; content: string; createTime?: number;
 type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; knownFailure?: string };
 type Target = "brief" | "treatment" | "script";
 const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean }>();
-const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string } }): void; (e: "production-asset-applied"): void }>();
+const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void }>();
 const { themeSetting } = storeToRefs(settingStore());
 const markdownTheme = computed<"light" | "dark">(() => themeSetting.value.mode === "auto" ? (document.documentElement.getAttribute("theme-mode") === "dark" ? "dark" : "light") : themeSetting.value.mode);
 const historyMessages = ref<Message[]>([]), localMessages = ref<Message[]>([]);

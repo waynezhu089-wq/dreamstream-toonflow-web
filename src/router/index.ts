@@ -12,10 +12,18 @@ const router = createRouter({
     },
     {
       path: "/",
-      redirect: "/pilot",
+      redirect: "/studio",
     },
     {
       path: "/pilot",
+      redirect: "/professional",
+    },
+    {
+      path: "/studio",
+      component: () => import("@/views/pilot/StudioWorkspace.vue"),
+    },
+    {
+      path: "/professional",
       component: () => import("@/views/pilot/PilotShell.vue"),
     },
     {
