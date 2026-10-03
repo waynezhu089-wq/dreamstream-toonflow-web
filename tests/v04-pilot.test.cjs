@@ -87,6 +87,46 @@ test('OPT-021 extraction keeps existing identities as suggestions instead of ADD
   assert.match(shell, /if\(switched\)\{[^}]*skillMergeSuggestions\.value=\[\]/,'switching projects clears proposal hints');
 });
 
+test('coverage-driven candidate mapping preserves shared visual system and confirmed BRAND identity without writing', () => {
+  const code = ts.transpileModule(read('src/views/pilot/skillProposal.ts'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const module={exports:{}};new Function('module','exports',code)(module,module.exports);
+  const base={category:'PROP',description:'',identityAnchors:[],mustPreserve:[],forbiddenChanges:[],ownerKey:null,variantOf:null,sourcePolicy:'AI_ALLOWED',prompt:'',assetKind:'VEHICLE',importance:'CORE'};
+  const output={candidates:[
+    {...base,name:'Dream Stream Logo',category:'BRAND',assetKind:'BRAND_MARK',sourcePolicy:'REAL_REQUIRED'},
+    {...base,name:'蓝色梦物质',category:'FX',assetKind:'MATERIAL_FX',importance:'SUPPORTING',relatedCandidateIndexes:[2]},
+    {...base,name:'海盗船',sharedVisualSystemCandidateIndex:1,relatedCandidateIndexes:[1]},
+  ],mergeSuggestions:[{candidateIndex:0,existingCanonicalKey:'BRAND-001',reason:'已有真实身份'}],coverage:[
+    {label:'Dream Stream Logo',coverageType:'BRAND',classification:'CANONICAL_ASSET',candidateIndexes:[0],existingCanonicalKeys:[],note:'real'},
+    {label:'远方灯塔',coverageType:'SCENE',classification:'SCENE_ANCHOR',candidateIndexes:[],existingCanonicalKeys:[],note:'missing'},
+  ]};
+  const proposal=module.exports.prepareAssetExtractionProposal(output,99);
+  assert.equal(proposal.changes.length,2);
+  assert.equal(proposal.changes[0].clientRef,'candidate_99_1');
+  assert.deepEqual(proposal.changes[0].relatedClientRefs,['candidate_99_2']);
+  assert.equal(proposal.changes[1].sharedVisualSystemClientRef,'candidate_99_1');
+  assert.deepEqual(proposal.coverage[0].existingCanonicalKeys,['BRAND-001']);
+  assert.deepEqual(proposal.coverage[1].candidateRefs,[]);
+  assert.equal(proposal.changes.some(change=>change.asset.name==='Dream Stream Logo'),false);
+});
+
+test('Asset Bible workspace exposes grouped assets, planned previews, turnarounds and coverage warning before Storyboard', () => {
+  const shell=read('src/views/pilot/PilotShell.vue');
+  const template=parse(shell,{filename:'PilotShell.vue'}).descriptor.template.content;
+  assert.match(template,/class="workspace" :class="\{'assets-workspace':tab==='assets'\}"/);
+  assert.match(shell,/\.assets-workspace :deep\(\.agent\)\{grid-column:2/);
+  assert.match(template,/aria-label="资产结构树"/);
+  assert.match(template,/reviewFor\(selected\.key\)\?\.previewStatus/);
+  assert.match(template,/尚无低清图片；当前仅建立待执行计划，未调用图片模型/);
+  assert.match(template,/planTurnaround/);
+  assert.match(template,/assetDraft\.sourcePolicy==='REAL_REQUIRED'/);
+  assert.match(template,/Storyboard 前覆盖审计/);
+  assert.match(template,/coverageWarnings\.length/);
+  assert.match(shell,/api\("\/assets\/turnaround\/plan"/);
+  assert.match(shell,/coverage:skillCoverage\.value/);
+  assert.match(shell,/const token=unitToken\(\);[\s\S]*?const result=await api\("\/skills\/preview"/);
+  assert.match(shell,/if\(!isCurrentUnit\(token\)\)return;/,'late extraction from a previous project cannot enter the new workspace');
+});
+
 test('image composer uploads bytes, sends attachment IDs and requires reference preview plus confirm', () => {
   const panel = read('src/views/pilot/ProjectAgentPanel.vue');
   assert.match(panel, /type="file" accept="image\/png,image\/jpeg,image\/webp"/);
