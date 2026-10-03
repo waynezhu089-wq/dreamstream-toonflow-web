@@ -97,6 +97,18 @@ export function appendCandidateForRequirement(changes: PendingChange[], coverage
   return { changes: [...changes, { operation: "ADD", clientRef, asset }], coverage: nextCoverage };
 }
 
+export function linkRequirementToCandidate(changes: PendingChange[], coverage: any[], requirement: any, clientRef: string) {
+  if (!requirement?.requirementKey || !changes.some(change => change.operation === "ADD" && change.clientRef === clientRef))
+    throw new Error("只能关联当前 Proposal 中存在的候选");
+  const nextCoverage = coverage.map(item => ({ ...item, candidateRefs: [...item.candidateRefs] }));
+  const target = nextCoverage.find(item => item.reviewRequirementKey === requirement.requirementKey);
+  if (target) target.candidateRefs = [...new Set([...target.candidateRefs, clientRef])];
+  else nextCoverage.push({ reviewRequirementKey: requirement.requirementKey, label: requirement.label,
+    coverageType: requirement.coverageType, classification: requirement.classification,
+    candidateRefs: [clientRef], existingCanonicalKeys: [], note: requirement.note || "人工关联已有候选" });
+  return nextCoverage;
+}
+
 export function assetCoveragePayload(coverage: (PendingCoverage & Record<string, unknown>)[]) {
   return coverage.map(({ reviewRequirementKey: _reviewRequirementKey, ...row }) => row);
 }

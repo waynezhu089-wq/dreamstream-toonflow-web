@@ -83,7 +83,7 @@ test('OPT-021 extraction keeps existing identities as suggestions instead of ADD
   const shell = read('src/views/pilot/PilotShell.vue');
   assert.match(shell, /prepareAssetExtractionProposal\(result\.output,Date\.now\(\),result\.sufficiency\?\.requirements \|\| \[\]\)/);
   assert.match(shell, /错误代码：\$\{e\.code\.slice\("PILOT_"\.length\)\}/);
-  assert.match(shell, /已有素材身份的合并建议/);
+  assert.match(shell, /:merge-suggestions="skillMergeSuggestions"/,'existing identities are reviewed as reference cards');
   assert.match(shell, /if\(switched\)\{[\s\S]*?skillMergeSuggestions\.value=\[\]/,'switching projects clears proposal hints');
 });
 
@@ -192,6 +192,54 @@ test('OPT-025B proposal review controls inherit the Pilot theme without changing
   const shell = read('src/views/pilot/PilotShell.vue');
   assert.match(shell, /button\.quiet:active:not\(:disabled\),button\.primary:active:not\(:disabled\)\{transform:translateY\(2px\)/);
   assert.match(shell, /button\.action-working,button\.action-working:disabled\{/);
+});
+
+test('OPT-026 one pending candidate can satisfy two stable requirements without another ADD', () => {
+  const code=ts.transpileModule(read('src/views/pilot/skillProposal.ts'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const module={exports:{}};new Function('module','exports',code)(module,module.exports);
+  const {appendCandidateForRequirement,linkRequirementToCandidate,reviewPendingSufficiency,assetCoveragePayload}=module.exports;
+  const a={requirementKey:'audit:SCENE:月夜海面:1',label:'月夜海面',coverageType:'SCENE',classification:'SCENE_ANCHOR',status:'MISSING',note:''};
+  const b={requirementKey:'audit:SCENE:云端月夜:1',label:'云端月夜',coverageType:'SCENE',classification:'SCENE_ANCHOR',status:'MISSING',note:''};
+  const base={status:'NEEDS_REVIEW',reason:'two missing',auditComplete:true,requirements:[a,b]};
+  const pending=appendCandidateForRequirement([],[],a,'manual_one');
+  const linked=linkRequirementToCandidate(pending.changes,pending.coverage,b,'manual_one');
+  assert.equal(pending.changes.length,1);
+  assert.equal(linked.length,2);
+  assert.deepEqual(linked.map(item=>item.candidateRefs),[['manual_one'],['manual_one']]);
+  assert.deepEqual(reviewPendingSufficiency(base,linked).requirements.map(item=>item.status),['COVERED','COVERED']);
+  pending.changes[0].asset.name='云端月夜 / 高空终场环境';
+  assert.deepEqual(linked.map(item=>item.candidateRefs),[['manual_one'],['manual_one']],'rename does not change stable links');
+  assert.equal(assetCoveragePayload(linked).every(item=>!('reviewRequirementKey' in item)),true);
+  assert.throws(()=>linkRequirementToCandidate(pending.changes,linked,b,'missing_candidate'));
+});
+
+test('OPT-026 proposal and preview use grouped cards, on-demand detail and compact Coverage', () => {
+  const component=parse(read('src/views/pilot/AssetProposalReview.vue'),{filename:'AssetProposalReview.vue'});
+  const template=component.descriptor.template.content;
+  assert.equal(compileTemplate({source:template,filename:'AssetProposalReview.vue',id:'review'}).errors.length,0);
+  assert.match(template,/class="asset-grid"/);
+  assert.match(template,/selectedRef = change.clientRef/);
+  assert.match(template,/v-if="selectedChange" class="detail"/);
+  assert.match(template,/assetKindLabel\(change.asset.assetKind\)/);
+  assert.match(template,/relations\(change\).shared/);
+  assert.match(template,/class="coverage-summary"/);
+  assert.match(template,/v-if="showAllCoverage"/);
+  assert.match(template,/v-if="showBeats"/);
+  assert.match(template,/v-if="missing.length"/);
+  assert.match(template,/class="duplicate-summary"/);
+  assert.match(template,/class="asset-card existing-card"/);
+  assert.doesNotMatch(template,/\{\{\s*change\.clientRef\s*\}\}/);
+  const script=component.descriptor.scriptSetup.content;
+  assert.match(script,/const showAllCoverage = ref\(false\), showBeats = ref\(false\)/);
+  assert.match(script,/const referencedExisting = computed/);
+  assert.match(script,/BRAND_MARK:'品牌标识'/);
+  const style=component.descriptor.styles[0].content;
+  assert.match(style,/\.asset-grid\{[^}]*repeat\(auto-fit,minmax\(240px,1fr\)\)/);
+  assert.match(style,/background:var\(--td-bg-color-container\);color:var\(--td-text-color-primary\)/);
+  const shell=read('src/views/pilot/PilotShell.vue');
+  assert.match(shell,/@link-candidate="linkCandidateToRequirement"/);
+  assert.match(shell,/class="proposal-actions"/);
+  assert.match(shell,/button\.action-working,button\.action-working:disabled/);
 });
 
 test('OPT-025A stable requirement keys survive out-of-order supplements and human edits', () => {

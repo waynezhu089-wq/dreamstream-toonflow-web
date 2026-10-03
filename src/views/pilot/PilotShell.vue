@@ -53,12 +53,11 @@
               <p v-for="r in state.agentReferences?.filter((x:any)=>['ASSET_BIBLE','BIND_SELECTED_ASSET'].includes(x.targetType) && (!x.targetKey || x.targetKey===selected?.key))" :key="r.id" class="muted">图片参考：{{ r.originalName }} · 尚未绑定为正式素材</p>
               <div class="toolbar"><button class="primary" :class="actionClass('asset-preview')" :disabled="saving || !assetDraft.name" @click="previewAsset"><span v-if="actionPhase('asset-preview')==='WORKING'" class="button-spinner" aria-hidden="true"></span>{{ actionLabel('asset-preview','预览素材变更') }}</button><button v-if="selected" class="quiet" :disabled="saving" @click="retireAsset">退休此身份</button></div>
             </div><div v-else class="asset-empty">选择一个素材查看身份与参考，或添加新的候选。</div></div>
-          <div v-if="skillMergeSuggestions.length" class="preview"><h2>已有素材身份的合并建议</h2><p v-for="(suggestion,i) in skillMergeSuggestions" :key="i" class="muted">{{ suggestion.name }} → {{ suggestion.existingCanonicalKey }}：{{ suggestion.reason }}。不会自动新增或合并。</p><button class="quiet" @click="skillMergeSuggestions=[]">清除建议</button></div>
           <div v-if="assetChanges.length || skillCoverage.length" class="preview">
-            <AssetProposalReview :changes="assetChanges" :coverage="skillCoverage" :sufficiency="skillSufficiency" :existing-assets="state.assets" :relation-status="skillRelationStatus" @dirty="assetPreview=null" @add-candidate="addCandidateToProposal" />
-            <button class="quiet" :class="actionClass('asset-preview')" :disabled="saving" @click="previewAssetChanges"><span v-if="actionPhase('asset-preview')==='WORKING'" class="button-spinner" aria-hidden="true"></span>{{ actionLabel('asset-preview',assetPreview ? '重新预览' : '预览变更与重复建议') }}</button>
-            <template v-if="assetPreview"><p v-for="s in assetPreview.suggestions" :key="s.clientRef" class="muted">{{ s.possibleMatches.length ? `可能重复：${s.possibleMatches.join('、')}。不会自动合并。` : '无同名身份；仍请人工检查是否同一实体。' }}</p><button class="primary" :class="actionClass('asset-apply')" :disabled="saving" @click="applyAsset"><span v-if="actionPhase('asset-apply')==='WORKING'" class="button-spinner" aria-hidden="true"></span>{{ actionLabel('asset-apply','确认并应用') }}</button></template>
-            <button class="quiet" @click="discardAssetProposal">丢弃提案</button>
+            <AssetProposalReview :changes="assetChanges" :coverage="skillCoverage" :sufficiency="skillSufficiency" :existing-assets="state.assets" :merge-suggestions="skillMergeSuggestions" :references="state.agentReferences" :asset-plan="state.assetPlan" :preview="assetPreview" :relation-status="skillRelationStatus" @dirty="assetPreview=null" @add-candidate="addCandidateToProposal" @link-candidate="linkCandidateToRequirement" />
+            <div class="proposal-actions"><button class="quiet" :class="actionClass('asset-preview')" :disabled="saving" @click="previewAssetChanges"><span v-if="actionPhase('asset-preview')==='WORKING'" class="button-spinner" aria-hidden="true"></span>{{ actionLabel('asset-preview',assetPreview ? '重新预览' : '预览变更与重复建议') }}</button>
+              <button v-if="assetPreview" class="primary" :class="actionClass('asset-apply')" :disabled="saving" @click="applyAsset"><span v-if="actionPhase('asset-apply')==='WORKING'" class="button-spinner" aria-hidden="true"></span>{{ actionLabel('asset-apply','确认并应用') }}</button>
+              <button class="quiet" @click="discardAssetProposal">丢弃提案</button></div>
           </div>
           <section class="coverage-audit"><h2>Storyboard 前覆盖审计</h2><p class="muted">依据已确认 Treatment 和人工确认的提取审计；这是提示，不会伪造 Stage Gate。</p><p v-if="state.coverage?.stale" class="coverage-warning">Creative 已修改，覆盖审计过期。请重新提取并确认。</p><p v-if="!state.coverage?.items?.length" class="coverage-warning">尚无已确认的覆盖审计；进入分镜前请检查遗漏。</p><div class="coverage-grid"><div v-for="type in coverageGroups" :key="type"><strong>{{ coverageLabel(type) }}</strong><span>{{ state.coverage?.items?.filter((item:any)=>item.coverageType===type && item.status!=='UNCOVERED').length || 0 }} / {{ state.coverage?.items?.filter((item:any)=>item.coverageType===type).length || 0 }}</span></div></div><p v-for="item in coverageWarnings" :key="item.position" class="coverage-warning">未覆盖：{{ item.label }}（{{ coverageLabel(item.coverageType) }}）· {{ item.note }}</p></section>
         </template>
@@ -91,7 +90,7 @@ import { selectAdvertisementUnit } from "@/utils/advertisementUnit";
 import ProjectAgentPanel from "./ProjectAgentPanel.vue";
 import AssetProposalReview from "./AssetProposalReview.vue";
 import { handoffToProjectPage, type PilotHandoffTarget } from "./projectHandoff";
-import { appendCandidateForRequirement, assetCoveragePayload, prepareAssetExtractionProposal } from "./skillProposal";
+import { appendCandidateForRequirement, linkRequirementToCandidate, assetCoveragePayload, prepareAssetExtractionProposal } from "./skillProposal";
 import { beginPilotAction, settlePilotAction, type PilotActionFeedback } from "./pilotActionFeedback";
 import { useStoryboardRevision } from "@/views/production/revision/coordinator";
 const router = useRouter();
@@ -179,6 +178,12 @@ function addCandidateToProposal(requirementKey:string|null){
   const pending=appendCandidateForRequirement(assetChanges.value,skillCoverage.value,requirement,`manual_${crypto.randomUUID()}`);
   assetChanges.value=pending.changes;skillCoverage.value=pending.coverage;
   assetPreview.value=null;
+}
+function linkCandidateToRequirement(requirementKey:string,clientRef:string){
+  const requirement=skillSufficiency.value?.requirements?.find((item:any)=>item.requirementKey===requirementKey);
+  if(!requirement)return;
+  try{skillCoverage.value=linkRequirementToCandidate(assetChanges.value,skillCoverage.value,requirement,clientRef);assetPreview.value=null;}
+  catch(e){fail(e);}
 }
 function discardAssetProposal(){assetChanges.value=[];skillCoverage.value=[];skillSufficiency.value=null;skillRelationStatus.value="READY";skillMergeSuggestions.value=[];assetSourceVersion.value=null;assetPreview.value=null;}
 async function previewAssetChanges(){const key="asset-preview";if(!startAction(key,"正在预览…"))return;const token=unitToken();try{const preview=await api("/assets/preview",{projectId:token.projectId,scriptId:token.scriptId,changes:assetChanges.value,...(skillCoverage.value.length?{coverage:assetCoveragePayload(skillCoverage.value)}:{}),...(assetSourceVersion.value===null?{}:{sourceCreativeVersion:assetSourceVersion.value})});if(isCurrentUnit(token)){assetPreview.value=preview;finishAction(key,true,"预览已就绪");}}catch(e){if(isCurrentUnit(token)){fail(e);finishAction(key,false,"预览失败 · 重试");}}finally{saving.value=false;}}
@@ -271,5 +276,6 @@ button.action-working,button.action-working:disabled{opacity:1;background:var(--
 button.action-success,button.action-success:disabled{opacity:1;color:var(--td-success-color);border:1px solid var(--td-success-color);background:var(--td-bg-color-container)}
 button.action-failure,button.action-failure:disabled{opacity:1;color:var(--td-error-color);border:1px solid var(--td-error-color);background:var(--td-bg-color-container)}
 .button-spinner{display:inline-block;width:.75em;height:.75em;margin-right:.45em;vertical-align:-.06em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:pilot-button-spin .8s linear infinite}
+.proposal-actions{position:sticky;bottom:0;z-index:2;display:flex;flex-wrap:wrap;gap:.5rem;padding:.75rem 0;background:var(--td-bg-color-page);border-top:1px solid var(--td-component-border)}
 @keyframes pilot-button-spin{to{transform:rotate(360deg)}}
 </style>
