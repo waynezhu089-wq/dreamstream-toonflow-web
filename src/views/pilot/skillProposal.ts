@@ -32,3 +32,61 @@ export function prepareAssetExtractionProposal(output: { candidates: AssetCandid
     })) ?? [],
   };
 }
+
+type PendingChange = { operation: string; clientRef?: string; asset?: { name: string; relatedKeys?: string[]; sharedVisualSystemKey?: string | null }; relatedClientRefs?: string[]; sharedVisualSystemClientRef?: string | null };
+type ExistingAsset = { canonicalKey: string; name: string };
+const distinct = (names: string[]) => [...new Set(names.filter(Boolean))];
+
+export function describeProposalRelations(change: PendingChange, changes: PendingChange[], existing: ExistingAsset[]) {
+  const byRef = new Map(changes.filter(item => item.operation === "ADD").map(item => [item.clientRef, item.asset?.name]));
+  const byKey = new Map(existing.map(item => [item.canonicalKey, item.name]));
+  const display = (key: string) => byRef.get(key) || byKey.get(key) || (key.startsWith("candidate_") ? "未知候选" : key);
+  const sharedKey = change.sharedVisualSystemClientRef || change.asset?.sharedVisualSystemKey;
+  const shared = sharedKey ? display(sharedKey) : "";
+  const continuity = distinct([...(change.relatedClientRefs || []), ...(change.asset?.relatedKeys || [])]
+    .filter(key => key !== sharedKey).map(display)).filter(name => name !== change.asset?.name && name !== shared);
+  return { shared, continuity };
+}
+
+type ReviewRequirement = { index: number; label: string; coverageType: string; classification: string; status: string; suggestedAsset?: unknown; note: string };
+type Review = { status: string; reason: string; auditComplete?: boolean; requirements: ReviewRequirement[] };
+type PendingCoverage = { label?: string; candidateRefs: string[]; existingCanonicalKeys: string[]; classification: string };
+
+export function reviewPendingSufficiency(base: Review | null, coverage: PendingCoverage[]) {
+  if (!base) return null;
+  const requirements = base.requirements.map((item, index) => {
+    const row = coverage[index];
+    const documented = row && ["SHOT_LOCAL", "COMPOSITION_MOTIF"].includes(row.classification);
+    const status = documented ? "DOCUMENTED" : row?.candidateRefs?.length || row?.existingCanonicalKeys?.length ? "COVERED" : "MISSING";
+    return { ...item, label: row?.label || item.label, status };
+  });
+  const missing = requirements.filter(item => item.status === "MISSING");
+  const ready = !!base.auditComplete && !!base.requirements.length && !missing.length;
+  return { ...base, requirements,
+    status: ready ? "READY" : "NEEDS_REVIEW",
+    reason: missing.length ? `${missing.length} 项重要视觉内容仍待人工确定生产归属` : ready ? "已列重要视觉内容均有明确归属；请人工确认" : base.reason };
+}
+
+export function appendCandidateForRequirement(changes: PendingChange[], coverage: any[], requirement: any | null, clientRef: string) {
+  const byCoverage: Record<string, [string, string]> = {
+    PERSON: ["CHAR", "HUMAN_CHARACTER"], CREATURE: ["CHAR", "CREATURE"],
+    VEHICLE: ["PROP", "VEHICLE"], SCENE: ["LOC", "ENVIRONMENT"],
+    FX_MATERIAL: ["FX", "MATERIAL_FX"], BRAND: ["BRAND", "BRAND_MARK"], PROP: ["PROP", "PROP"],
+  };
+  const [category, assetKind] = byCoverage[requirement?.coverageType] || ["PROP", "PROP"];
+  const asset = {
+    name: requirement?.suggestedAsset?.name || requirement?.label || "新素材候选",
+    category: requirement?.suggestedAsset?.category || category,
+    assetKind: requirement?.suggestedAsset?.assetKind || assetKind,
+    importance: requirement?.suggestedAsset?.importance || "SUPPORTING",
+    description: "", sourcePolicy: ["BRAND", "UI"].includes(requirement?.suggestedAsset?.category || category) ? "REAL_REQUIRED" : "AI_ALLOWED",
+    prompt: "", identityAnchors: [], mustPreserve: [], forbiddenChanges: [],
+    ownerKey: null, variantOf: null, relatedKeys: [], sharedVisualSystemKey: null,
+  };
+  const nextCoverage = coverage.map(item => ({ ...item, candidateRefs: [...item.candidateRefs] }));
+  if (requirement && nextCoverage[requirement.index]) nextCoverage[requirement.index].candidateRefs.push(clientRef);
+  else nextCoverage.push({ label: requirement?.label || "新素材候选", coverageType: requirement?.coverageType || "PROP",
+    classification: "CANONICAL_ASSET", candidateRefs: [clientRef], existingCanonicalKeys: [],
+    note: requirement?.note || "人工补充，预览前请核对 Treatment 依据" });
+  return { changes: [...changes, { operation: "ADD", clientRef, asset }], coverage: nextCoverage };
+}

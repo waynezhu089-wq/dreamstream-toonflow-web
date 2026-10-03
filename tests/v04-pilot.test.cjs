@@ -136,6 +136,43 @@ test('coverage-driven candidate mapping preserves shared visual system and confi
   assert.equal(proposal.changes.some(change=>change.asset.name==='Dream Stream Logo'),false);
 });
 
+test('OPT-025 review names and de-duplicates semantic relations; human supplement stays pending', () => {
+  const source=read('src/views/pilot/skillProposal.ts');
+  const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const module={exports:{}};new Function('module','exports',code)(module,module.exports);
+  const {describeProposalRelations,appendCandidateForRequirement,reviewPendingSufficiency}=module.exports;
+  const changes=[
+    {operation:'ADD',clientRef:'candidate_123_1',asset:{name:'蓝色荧光物质'}},
+    {operation:'ADD',clientRef:'candidate_123_2',asset:{name:'海盗船',relatedKeys:[]},relatedClientRefs:['candidate_123_1','candidate_123_3','candidate_123_4','candidate_123_3'],sharedVisualSystemClientRef:'candidate_123_1'},
+    {operation:'ADD',clientRef:'candidate_123_3',asset:{name:'潜水艇'}},
+    {operation:'ADD',clientRef:'candidate_123_4',asset:{name:'飞马'}},
+  ];
+  assert.deepEqual(describeProposalRelations(changes[1],changes,[]),{shared:'蓝色荧光物质',continuity:['潜水艇','飞马']});
+  const base={status:'NEEDS_REVIEW',reason:'Missing scene',auditComplete:true,requirements:[{index:0,label:'终场高空月夜',coverageType:'SCENE',classification:'SCENE_ANCHOR',status:'MISSING',note:'独立环境',suggestedAsset:{name:'终场高空月夜',category:'LOC',assetKind:'ENVIRONMENT'}}]};
+  const coverage=[{label:'终场高空月夜',coverageType:'SCENE',classification:'SCENE_ANCHOR',candidateRefs:[],existingCanonicalKeys:[],note:'独立环境'}];
+  assert.equal(reviewPendingSufficiency(base,coverage).status,'NEEDS_REVIEW');
+  const pending=appendCandidateForRequirement(changes,coverage,base.requirements[0],'manual_test');
+  assert.equal(changes.length,4,'original proposal remains untouched');
+  assert.deepEqual(coverage[0].candidateRefs,[],'review helper cannot persist or mutate original coverage');
+  assert.equal(pending.changes.at(-1).asset.assetKind,'ENVIRONMENT');
+  assert.deepEqual(pending.coverage[0].candidateRefs,['manual_test']);
+  assert.equal(reviewPendingSufficiency(base,pending.coverage).status,'READY');
+  pending.coverage[0].label='人工修正的终场环境';
+  assert.equal(reviewPendingSufficiency(base,pending.coverage).requirements[0].label,'人工修正的终场环境');
+  assert.equal(reviewPendingSufficiency({...base,auditComplete:false},pending.coverage).status,'NEEDS_REVIEW','incomplete audit cannot become ready by UI mutation');
+  const component=read('src/views/pilot/AssetProposalReview.vue');
+  const template=parse(component,{filename:'AssetProposalReview.vue'}).descriptor.template.content;
+  assert.equal(compileTemplate({source:template,filename:'AssetProposalReview.vue',id:'review'}).errors.length,0);
+  assert.match(template,/共享视觉系统：/);assert.match(template,/连续形态：/);
+  assert.match(template,/加入当前 Proposal/);assert.match(template,/补充候选/);
+  assert.match(template,/视觉需求<input v-model="item.label"/,'manual Coverage labels remain editable before Preview');
+  assert.doesNotMatch(template,/\{\{\s*change\.clientRef\s*\}\}/,'internal candidate IDs must never be presented');
+  const shell=read('src/views/pilot/PilotShell.vue');
+  assert.match(shell,/<AssetProposalReview :changes="assetChanges"/);
+  assert.match(shell,/appendCandidateForRequirement\(assetChanges\.value,skillCoverage\.value,requirement/);
+  assert.match(shell,/assetPreview\.value=null;/,'a new candidate invalidates the previous Preview');
+});
+
 test('Asset Bible workspace exposes grouped assets, planned previews, turnarounds and coverage warning before Storyboard', () => {
   const shell=read('src/views/pilot/PilotShell.vue');
   const template=parse(shell,{filename:'PilotShell.vue'}).descriptor.template.content;
