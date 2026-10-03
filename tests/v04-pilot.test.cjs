@@ -84,7 +84,34 @@ test('OPT-021 extraction keeps existing identities as suggestions instead of ADD
   assert.match(shell, /prepareAssetExtractionProposal\(result\.output,Date\.now\(\)\)/);
   assert.match(shell, /错误代码：\$\{e\.code\.slice\("PILOT_"\.length\)\}/);
   assert.match(shell, /已有素材身份的合并建议/);
-  assert.match(shell, /if\(switched\)\{[^}]*skillMergeSuggestions\.value=\[\]/,'switching projects clears proposal hints');
+  assert.match(shell, /if\(switched\)\{[\s\S]*?skillMergeSuggestions\.value=\[\]/,'switching projects clears proposal hints');
+});
+
+test('OPT-023 action feedback blocks duplicate work and settles with visible outcome', () => {
+  const source = read('src/views/pilot/pilotActionFeedback.ts');
+  const code = ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const module={exports:{}};new Function('module','exports',code)(module,module.exports);
+  const {beginPilotAction,settlePilotAction}=module.exports;
+  const state={key:'',phase:'IDLE',message:''};
+  assert.equal(beginPilotAction(state,'extract','AI 提取中…'),true);
+  assert.deepEqual(state,{key:'extract',phase:'WORKING',message:'AI 提取中…'});
+  assert.equal(beginPilotAction(state,'extract','duplicate'),false);
+  assert.equal(beginPilotAction(state,'shot-preview','other action'),false);
+  assert.equal(settlePilotAction(state,'shot-preview','SUCCESS','wrong'),false);
+  assert.equal(settlePilotAction(state,'extract','FAILURE','提取失败 · 重试'),true);
+  assert.equal(state.phase,'FAILURE');
+  assert.equal(beginPilotAction(state,'extract','AI 提取中…'),true,'failed action can be retried');
+  assert.equal(settlePilotAction(state,'extract','SUCCESS','提案已就绪'),true);
+  assert.equal(state.phase,'SUCCESS');
+  const shell=read('src/views/pilot/PilotShell.vue');
+  const template=parse(shell,{filename:'PilotShell.vue'}).descriptor.template.content;
+  for(const key of ['extract','asset-preview','asset-apply','storyboard-ai','shot-preview','shot-apply','turnaround']) {
+    assert.match(template,new RegExp(`actionClass\\('${key}'\\)`));
+    assert.match(template,new RegExp(`actionPhase\\('${key}'\\)===\\'WORKING\\'`));
+  }
+  assert.match(shell,/button\.quiet:active:not\(:disabled\),button\.primary:active:not\(:disabled\)\{transform:translateY\(2px\)/);
+  assert.match(shell,/\.button-spinner\{[^}]*animation:pilot-button-spin/);
+  assert.match(shell,/if\(saving\.value\)return;\s*if\(!window\.confirm/,'AI action cannot repeat while one is running');
 });
 
 test('coverage-driven candidate mapping preserves shared visual system and confirmed BRAND identity without writing', () => {
