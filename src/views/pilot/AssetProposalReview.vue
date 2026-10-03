@@ -78,8 +78,19 @@ function coverageOwner(item: any) {
 .relation-warning{border-left:3px solid var(--td-warning-color);background:var(--td-bg-color-secondarycontainer);padding:.65rem .8rem;font-size:.82rem}
 .missing-item{display:flex;align-items:center;justify-content:space-between;gap:.7rem;padding:.45rem 0;border-top:1px solid var(--td-component-border);font-size:.82rem}
 .candidate{border-top:1px solid var(--td-component-border);padding:.9rem 0}.candidate strong{display:block;margin-bottom:.5rem}
-.candidate label{display:block;font-size:.78rem;margin:.45rem 0}.candidate input,.candidate select,.candidate textarea{display:block;width:100%}
-.coverage-row label{display:block;font-size:.78rem;margin:.45rem 0}.coverage-row input{display:block;width:100%}
+.candidate label,.coverage-row label{display:block;font-size:.78rem;margin:.55rem 0}
+.proposal-review input,.proposal-review select,.proposal-review textarea{
+  display:block;box-sizing:border-box;width:100%;margin-top:.45rem;padding:.65rem .75rem;
+  border:1px solid var(--td-component-border);border-radius:.4rem;
+  background:var(--td-bg-color-container);color:var(--td-text-color-primary);
+  caret-color:var(--td-brand-color);font:inherit;font-weight:400;
+  transition:border-color .12s ease,background-color .12s ease;
+}
+.proposal-review input::placeholder,.proposal-review textarea::placeholder{color:var(--td-text-color-placeholder)}
+.proposal-review :is(input,select,textarea):hover{border-color:var(--td-brand-color);background:var(--td-bg-color-secondarycontainer)}
+.proposal-review :is(input,select,textarea):focus{outline:2px solid var(--td-brand-color);outline-offset:1px;border-color:var(--td-brand-color)}
+.proposal-review select option{background:var(--td-bg-color-container);color:var(--td-text-color-primary)}
+.proposal-review textarea{min-height:6rem;line-height:1.6;resize:vertical}
 .field-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem}.relation,.coverage-row{font-size:.82rem;line-height:1.5}
 .coverage-draft{border-top:1px solid var(--td-component-border);margin:1rem 0;padding-top:.5rem}
 .muted{color:var(--td-text-color-secondary);font-size:.81rem}

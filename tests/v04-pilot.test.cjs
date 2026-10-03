@@ -177,6 +177,23 @@ test('OPT-025 review names and de-duplicates semantic relations; human supplemen
   assert.match(shell,/assetPreview\.value=null;/,'a new candidate invalidates the previous Preview');
 });
 
+test('OPT-025B proposal review controls inherit the Pilot theme without changing button feedback', () => {
+  const component = parse(read('src/views/pilot/AssetProposalReview.vue'), { filename: 'AssetProposalReview.vue' });
+  assert.equal(component.errors.length, 0);
+  assert.equal(compileTemplate({ source: component.descriptor.template.content, filename: 'AssetProposalReview.vue', id: 'review' }).errors.length, 0);
+  const style = component.descriptor.styles[0].content;
+  assert.match(style, /\.proposal-review input,\.proposal-review select,\.proposal-review textarea\s*\{[^}]*background:var\(--td-bg-color-container\);color:var\(--td-text-color-primary\)/);
+  assert.match(style, /border:1px solid var\(--td-component-border\)/);
+  assert.match(style, /\.proposal-review :is\(input,select,textarea\):hover\{[^}]*var\(--td-brand-color\)/);
+  assert.match(style, /\.proposal-review :is\(input,select,textarea\):focus\{[^}]*outline:2px solid var\(--td-brand-color\)/);
+  assert.match(style, /\.proposal-review select option\{[^}]*background:var\(--td-bg-color-container\);color:var\(--td-text-color-primary\)/);
+  assert.match(style, /\.proposal-review textarea\{[^}]*min-height:6rem;[^}]*resize:vertical/);
+  assert.doesNotMatch(style, /(?:background|color):\s*(?:white|#fff\b|#ffffff\b|rgb\(255\s*,\s*255\s*,\s*255\))/i);
+  const shell = read('src/views/pilot/PilotShell.vue');
+  assert.match(shell, /button\.quiet:active:not\(:disabled\),button\.primary:active:not\(:disabled\)\{transform:translateY\(2px\)/);
+  assert.match(shell, /button\.action-working,button\.action-working:disabled\{/);
+});
+
 test('OPT-025A stable requirement keys survive out-of-order supplements and human edits', () => {
   const code=ts.transpileModule(read('src/views/pilot/skillProposal.ts'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   const module={exports:{}};new Function('module','exports',code)(module,module.exports);
