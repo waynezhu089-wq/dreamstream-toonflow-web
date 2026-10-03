@@ -81,7 +81,7 @@ test('OPT-021 extraction keeps existing identities as suggestions instead of ADD
   assert.deepEqual(proposal.mergeSuggestions, [{ name: 'Dream Stream Logo', existingCanonicalKey: 'BRAND-001', reason: '已有真实 Logo' }]);
   assert.deepEqual(proposal.changes, [{ operation: 'ADD', clientRef: 'candidate_1234_1', asset: output.candidates[1] }]);
   const shell = read('src/views/pilot/PilotShell.vue');
-  assert.match(shell, /prepareAssetExtractionProposal\(result\.output,Date\.now\(\)\)/);
+  assert.match(shell, /prepareAssetExtractionProposal\(result\.output,Date\.now\(\),result\.sufficiency\?\.requirements \|\| \[\]\)/);
   assert.match(shell, /错误代码：\$\{e\.code\.slice\("PILOT_"\.length\)\}/);
   assert.match(shell, /已有素材身份的合并建议/);
   assert.match(shell, /if\(switched\)\{[\s\S]*?skillMergeSuggestions\.value=\[\]/,'switching projects clears proposal hints');
@@ -140,7 +140,7 @@ test('OPT-025 review names and de-duplicates semantic relations; human supplemen
   const source=read('src/views/pilot/skillProposal.ts');
   const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   const module={exports:{}};new Function('module','exports',code)(module,module.exports);
-  const {describeProposalRelations,appendCandidateForRequirement,reviewPendingSufficiency}=module.exports;
+  const {describeProposalRelations,appendCandidateForRequirement,reviewPendingSufficiency,assetCoveragePayload}=module.exports;
   const changes=[
     {operation:'ADD',clientRef:'candidate_123_1',asset:{name:'蓝色荧光物质'}},
     {operation:'ADD',clientRef:'candidate_123_2',asset:{name:'海盗船',relatedKeys:[]},relatedClientRefs:['candidate_123_1','candidate_123_3','candidate_123_4','candidate_123_3'],sharedVisualSystemClientRef:'candidate_123_1'},
@@ -148,29 +148,64 @@ test('OPT-025 review names and de-duplicates semantic relations; human supplemen
     {operation:'ADD',clientRef:'candidate_123_4',asset:{name:'飞马'}},
   ];
   assert.deepEqual(describeProposalRelations(changes[1],changes,[]),{shared:'蓝色荧光物质',continuity:['潜水艇','飞马']});
-  const base={status:'NEEDS_REVIEW',reason:'Missing scene',auditComplete:true,requirements:[{index:0,label:'终场高空月夜',coverageType:'SCENE',classification:'SCENE_ANCHOR',status:'MISSING',note:'独立环境',suggestedAsset:{name:'终场高空月夜',category:'LOC',assetKind:'ENVIRONMENT'}}]};
-  const coverage=[{label:'终场高空月夜',coverageType:'SCENE',classification:'SCENE_ANCHOR',candidateRefs:[],existingCanonicalKeys:[],note:'独立环境'}];
+  const base={status:'NEEDS_REVIEW',reason:'Missing scene',auditComplete:true,requirements:[{requirementKey:'audit:SCENE:终场高空月夜:1',label:'终场高空月夜',coverageType:'SCENE',classification:'SCENE_ANCHOR',status:'MISSING',note:'独立环境',suggestedAsset:{name:'终场高空月夜',category:'LOC',assetKind:'ENVIRONMENT'}}]};
+  const coverage=[];
   assert.equal(reviewPendingSufficiency(base,coverage).status,'NEEDS_REVIEW');
   const pending=appendCandidateForRequirement(changes,coverage,base.requirements[0],'manual_test');
   assert.equal(changes.length,4,'original proposal remains untouched');
-  assert.deepEqual(coverage[0].candidateRefs,[],'review helper cannot persist or mutate original coverage');
+  assert.deepEqual(coverage,[],'review helper cannot persist or mutate original coverage');
   assert.equal(pending.changes.at(-1).asset.assetKind,'ENVIRONMENT');
   assert.deepEqual(pending.coverage[0].candidateRefs,['manual_test']);
+  assert.equal(pending.coverage[0].reviewRequirementKey,base.requirements[0].requirementKey);
   assert.equal(reviewPendingSufficiency(base,pending.coverage).status,'READY');
   pending.coverage[0].label='人工修正的终场环境';
   assert.equal(reviewPendingSufficiency(base,pending.coverage).requirements[0].label,'人工修正的终场环境');
+  assert.equal('reviewRequirementKey' in assetCoveragePayload(pending.coverage)[0],false,'review-only key never enters strict Preview/Apply payload');
   assert.equal(reviewPendingSufficiency({...base,auditComplete:false},pending.coverage).status,'NEEDS_REVIEW','incomplete audit cannot become ready by UI mutation');
   const component=read('src/views/pilot/AssetProposalReview.vue');
   const template=parse(component,{filename:'AssetProposalReview.vue'}).descriptor.template.content;
   assert.equal(compileTemplate({source:template,filename:'AssetProposalReview.vue',id:'review'}).errors.length,0);
   assert.match(template,/共享视觉系统：/);assert.match(template,/连续形态：/);
   assert.match(template,/加入当前 Proposal/);assert.match(template,/补充候选/);
+  assert.match(template,/relationStatus === 'NEEDS_REVIEW'/);
   assert.match(template,/视觉需求<input v-model="item.label"/,'manual Coverage labels remain editable before Preview');
   assert.doesNotMatch(template,/\{\{\s*change\.clientRef\s*\}\}/,'internal candidate IDs must never be presented');
   const shell=read('src/views/pilot/PilotShell.vue');
   assert.match(shell,/<AssetProposalReview :changes="assetChanges"/);
   assert.match(shell,/appendCandidateForRequirement\(assetChanges\.value,skillCoverage\.value,requirement/);
+  assert.match(shell,/coverage:assetCoveragePayload\(skillCoverage\.value\)/);
   assert.match(shell,/assetPreview\.value=null;/,'a new candidate invalidates the previous Preview');
+});
+
+test('OPT-025A stable requirement keys survive out-of-order supplements and human edits', () => {
+  const code=ts.transpileModule(read('src/views/pilot/skillProposal.ts'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const module={exports:{}};new Function('module','exports',code)(module,module.exports);
+  const {prepareAssetExtractionProposal,appendCandidateForRequirement,reviewPendingSufficiency,assetCoveragePayload}=module.exports;
+  const requirements=[
+    {requirementKey:'audit:SCENE:鲸腹:1',sourceCoverageIndex:null,label:'鲸腹',coverageType:'SCENE',classification:'SCENE_ANCHOR',status:'MISSING',note:'第一处',suggestedAsset:{name:'鲸腹',category:'LOC',assetKind:'ENVIRONMENT'}},
+    {requirementKey:'audit:SCENE:高空月夜:1',sourceCoverageIndex:null,label:'高空月夜',coverageType:'SCENE',classification:'SCENE_ANCHOR',status:'MISSING',note:'第二处',suggestedAsset:{name:'高空月夜',category:'LOC',assetKind:'ENVIRONMENT'}},
+  ];
+  const base={status:'NEEDS_REVIEW',reason:'two missing',auditComplete:true,requirements};
+  const initial=prepareAssetExtractionProposal({candidates:[],mergeSuggestions:[],coverage:[]},99,requirements);
+  const run=order=>{
+    let pending=initial;
+    for(const [step,index] of order.entries()){
+      pending=appendCandidateForRequirement(pending.changes,pending.coverage,requirements[index],`manual_${index}`);
+      const states=reviewPendingSufficiency(base,pending.coverage).requirements.map(item=>item.status);
+      assert.equal(states[index],'COVERED');assert.equal(states[1-index],step===0?'MISSING':'COVERED');
+    }
+    pending.changes.find(item=>item.clientRef==='manual_1').asset.name='云端月夜';
+    pending.coverage.find(item=>item.reviewRequirementKey===requirements[1].requirementKey).label='云端月夜';
+    const review=reviewPendingSufficiency(base,pending.coverage);
+    assert.equal(review.status,'READY');
+    assert.equal(review.requirements[1].requirementKey,requirements[1].requirementKey);
+    assert.equal(review.requirements[1].label,'云端月夜');
+    assert.deepEqual(review.requirements.map(item=>item.status),['COVERED','COVERED']);
+    assert.equal(assetCoveragePayload(pending.coverage).every(item=>!('reviewRequirementKey' in item)),true);
+    return review.requirements.map(item=>[item.requirementKey,item.status]);
+  };
+  assert.deepEqual(run([1,0]),run([0,1]));
+  assert.deepEqual(initial,{changes:[],coverage:[],mergeSuggestions:[]},'helpers never mutate initial proposal or persist data');
 });
 
 test('Asset Bible workspace exposes grouped assets, planned previews, turnarounds and coverage warning before Storyboard', () => {
@@ -186,7 +221,7 @@ test('Asset Bible workspace exposes grouped assets, planned previews, turnaround
   assert.match(template,/Storyboard 前覆盖审计/);
   assert.match(template,/coverageWarnings\.length/);
   assert.match(shell,/api\("\/assets\/turnaround\/plan"/);
-  assert.match(shell,/coverage:skillCoverage\.value/);
+  assert.match(shell,/coverage:assetCoveragePayload\(skillCoverage\.value\)/);
   assert.match(shell,/const token=unitToken\(\);[\s\S]*?const result=await api\("\/skills\/preview"/);
   assert.match(shell,/if\(!isCurrentUnit\(token\)\)return;/,'late extraction from a previous project cannot enter the new workspace');
 });

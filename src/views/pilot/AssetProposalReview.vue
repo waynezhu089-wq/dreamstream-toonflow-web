@@ -2,12 +2,13 @@
   <section class="proposal-review" aria-label="素材提案人工审查">
     <h2>待确认的素材提案</h2>
     <p class="muted">{{ changes.filter(item => item.operation === 'ADD').length }} 个新增身份 · {{ sufficiency?.existingReferenceCount || 0 }} 个已有身份引用。数量不是通过标准；请检查每个重要画面的生产归属。</p>
+    <p v-if="relationStatus === 'NEEDS_REVIEW'" class="relation-warning">关系分析未完成。素材候选和 Coverage 已生成，可继续人工审核；共享视觉系统／连续形态需人工确认或重新分析。</p>
     <div v-if="review" class="sufficiency" :class="review.status === 'NEEDS_REVIEW' ? 'needs-review' : 'ready'">
       <strong>素材充分性：{{ review.status === 'READY' ? '待人工确认，已列需求有归属' : '需要人工审查' }}</strong>
       <p>{{ review.reason }}</p>
-      <div v-for="item in review.requirements.filter(row => row.status === 'MISSING')" :key="item.index" class="missing-item">
+      <div v-for="item in review.requirements.filter(row => row.status === 'MISSING')" :key="item.requirementKey" class="missing-item">
         <span>待定：{{ item.label }}（{{ coverageLabel(item.coverageType) }}）· {{ item.note || '尚无明确生产归属' }}</span>
-        <button type="button" @click="$emit('add-candidate', item.index)">加入当前 Proposal</button>
+        <button type="button" @click="$emit('add-candidate', item.requirementKey)">加入当前 Proposal</button>
       </div>
     </div>
     <button type="button" class="quiet" @click="$emit('add-candidate', null)">＋ 补充候选</button>
@@ -51,8 +52,8 @@
 import { computed } from 'vue';
 import { describeProposalRelations, reviewPendingSufficiency } from './skillProposal';
 
-const props = defineProps<{ changes: any[]; coverage: any[]; sufficiency: any | null; existingAssets: any[] }>();
-defineEmits<{ (event: 'dirty'): void; (event: 'add-candidate', requirementIndex: number | null): void }>();
+const props = defineProps<{ changes: any[]; coverage: any[]; sufficiency: any | null; existingAssets: any[]; relationStatus: 'READY' | 'NEEDS_REVIEW' }>();
+defineEmits<{ (event: 'dirty'): void; (event: 'add-candidate', requirementKey: string | null): void }>();
 const categories = ['CHAR','ACC','PROP','PRODUCT','LOC','BRAND','UI','FX'];
 const assetKinds = ['HUMAN_CHARACTER','CREATURE','VEHICLE','PROP','ENVIRONMENT','MATERIAL_FX','CELESTIAL','BRAND_MARK','UI_REFERENCE','OTHER'];
 const review = computed(() => reviewPendingSufficiency(props.sufficiency, props.coverage));
@@ -74,6 +75,7 @@ function coverageOwner(item: any) {
 .proposal-review h2{margin:.2rem 0}.proposal-review h3{margin:1rem 0 .3rem}
 .sufficiency{border-left:3px solid var(--td-warning-color);background:var(--td-bg-color-secondarycontainer);padding:.7rem .9rem;margin:.9rem 0}
 .sufficiency.ready{border-left-color:var(--td-success-color)}.sufficiency p{margin:.25rem 0;font-size:.82rem}
+.relation-warning{border-left:3px solid var(--td-warning-color);background:var(--td-bg-color-secondarycontainer);padding:.65rem .8rem;font-size:.82rem}
 .missing-item{display:flex;align-items:center;justify-content:space-between;gap:.7rem;padding:.45rem 0;border-top:1px solid var(--td-component-border);font-size:.82rem}
 .candidate{border-top:1px solid var(--td-component-border);padding:.9rem 0}.candidate strong{display:block;margin-bottom:.5rem}
 .candidate label{display:block;font-size:.78rem;margin:.45rem 0}.candidate input,.candidate select,.candidate textarea{display:block;width:100%}

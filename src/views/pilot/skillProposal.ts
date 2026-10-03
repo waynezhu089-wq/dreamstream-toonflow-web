@@ -1,9 +1,11 @@
 type AssetCandidate = { name: string; relatedExistingKeys?: string[]; relatedCandidateIndexes?: number[]; sharedVisualSystemKey?: string | null; sharedVisualSystemCandidateIndex?: number | null; extractionPass?: string; [key: string]: unknown };
 type MergeSuggestion = { candidateIndex: number; existingCanonicalKey: string; reason: string };
 type CoverageItem = { label: string; coverageType: string; classification: string; candidateIndexes: number[]; existingCanonicalKeys: string[]; note: string };
+type RequirementLink = { requirementKey: string; sourceCoverageIndex: number | null };
 
-export function prepareAssetExtractionProposal(output: { candidates: AssetCandidate[]; mergeSuggestions: MergeSuggestion[]; coverage?: CoverageItem[] }, now: number) {
+export function prepareAssetExtractionProposal(output: { candidates: AssetCandidate[]; mergeSuggestions: MergeSuggestion[]; coverage?: CoverageItem[] }, now: number, requirements: RequirementLink[] = []) {
   const merged = new Map(output.mergeSuggestions.map(item => [item.candidateIndex, item.existingCanonicalKey]));
+  const keyBySourceIndex = new Map(requirements.filter(item => item.sourceCoverageIndex !== null).map(item => [item.sourceCoverageIndex, item.requirementKey]));
   const ref = (index: number) => `candidate_${now}_${index}`;
   return {
     mergeSuggestions: output.mergeSuggestions.map(item => ({
@@ -25,10 +27,11 @@ export function prepareAssetExtractionProposal(output: { candidates: AssetCandid
       ...(asset.relatedCandidateIndexes?.some(i => !merged.has(i)) ? { relatedClientRefs: asset.relatedCandidateIndexes.filter(i => !merged.has(i)).map(ref) } : {}),
       ...(asset.sharedVisualSystemCandidateIndex != null && !merged.has(asset.sharedVisualSystemCandidateIndex) ? { sharedVisualSystemClientRef: ref(asset.sharedVisualSystemCandidateIndex) } : {}),
     }]),
-    coverage: output.coverage?.map(item => ({
+    coverage: output.coverage?.map((item, index) => ({
       label: item.label, coverageType: item.coverageType, classification: item.classification, note: item.note,
       candidateRefs: item.candidateIndexes.filter(i => !merged.has(i)).map(ref),
       existingCanonicalKeys: [...new Set([...item.existingCanonicalKeys, ...item.candidateIndexes.flatMap(i => merged.has(i) ? [merged.get(i)!] : [])])],
+      ...(keyBySourceIndex.has(index) ? { reviewRequirementKey: keyBySourceIndex.get(index)! } : {}),
     })) ?? [],
   };
 }
@@ -48,14 +51,15 @@ export function describeProposalRelations(change: PendingChange, changes: Pendin
   return { shared, continuity };
 }
 
-type ReviewRequirement = { index: number; label: string; coverageType: string; classification: string; status: string; suggestedAsset?: unknown; note: string };
+type ReviewRequirement = { requirementKey: string; label: string; coverageType: string; classification: string; status: string; suggestedAsset?: unknown; note: string };
 type Review = { status: string; reason: string; auditComplete?: boolean; requirements: ReviewRequirement[] };
-type PendingCoverage = { label?: string; candidateRefs: string[]; existingCanonicalKeys: string[]; classification: string };
+type PendingCoverage = { reviewRequirementKey?: string; label?: string; candidateRefs: string[]; existingCanonicalKeys: string[]; classification: string };
 
 export function reviewPendingSufficiency(base: Review | null, coverage: PendingCoverage[]) {
   if (!base) return null;
-  const requirements = base.requirements.map((item, index) => {
-    const row = coverage[index];
+  const byRequirementKey = new Map(coverage.filter(row => row.reviewRequirementKey).map(row => [row.reviewRequirementKey, row]));
+  const requirements = base.requirements.map(item => {
+    const row = byRequirementKey.get(item.requirementKey);
     const documented = row && ["SHOT_LOCAL", "COMPOSITION_MOTIF"].includes(row.classification);
     const status = documented ? "DOCUMENTED" : row?.candidateRefs?.length || row?.existingCanonicalKeys?.length ? "COVERED" : "MISSING";
     return { ...item, label: row?.label || item.label, status };
@@ -84,9 +88,15 @@ export function appendCandidateForRequirement(changes: PendingChange[], coverage
     ownerKey: null, variantOf: null, relatedKeys: [], sharedVisualSystemKey: null,
   };
   const nextCoverage = coverage.map(item => ({ ...item, candidateRefs: [...item.candidateRefs] }));
-  if (requirement && nextCoverage[requirement.index]) nextCoverage[requirement.index].candidateRefs.push(clientRef);
-  else nextCoverage.push({ label: requirement?.label || "新素材候选", coverageType: requirement?.coverageType || "PROP",
+  const target = requirement && nextCoverage.find(item => item.reviewRequirementKey === requirement.requirementKey);
+  if (target) target.candidateRefs.push(clientRef);
+  else nextCoverage.push({ ...(requirement ? { reviewRequirementKey: requirement.requirementKey } : {}),
+    label: requirement?.label || "新素材候选", coverageType: requirement?.coverageType || "PROP",
     classification: "CANONICAL_ASSET", candidateRefs: [clientRef], existingCanonicalKeys: [],
     note: requirement?.note || "人工补充，预览前请核对 Treatment 依据" });
   return { changes: [...changes, { operation: "ADD", clientRef, asset }], coverage: nextCoverage };
+}
+
+export function assetCoveragePayload(coverage: (PendingCoverage & Record<string, unknown>)[]) {
+  return coverage.map(({ reviewRequirementKey: _reviewRequirementKey, ...row }) => row);
 }
