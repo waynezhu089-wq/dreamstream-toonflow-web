@@ -36,6 +36,29 @@ test('OPT-027A asset card opens editable Visual Spec proposal with preview/confi
   assert.doesNotMatch(panel, /Comfy|image\.generate|\/production\/storyboard\/batchGenerateImage/);
 });
 
+test('Visual Spec partial batch retains successful drafts and clears only the retried failure', () => {
+  const code=ts.transpileModule(read('src/views/pilot/visualProposalBatch.ts'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const module={exports:{}};new Function('module','exports',code)(module,module.exports);
+  const merge=module.exports.mergeVisualProposalResults;
+  const candidates=Array.from({length:5},(_,index)=>({canonicalKey:`CHAR-${index+1}`,spec:{visualIdentitySummary:`Identity ${index+1}`}}));
+  const failed={canonicalKey:'CHAR-6',name:'Sixth asset',code:'PILOT_VISUAL_SEMANTIC_ROOT_INVALID',message:'视觉语义根结构无效'};
+  const first=merge({}, {}, {candidates,failures:[failed]});
+  assert.equal(first.successfulCount,5);assert.equal(first.failedCount,1);
+  assert.equal(Object.keys(first.proposals).length,5);assert.deepEqual(first.failures['CHAR-6'],failed);
+  const retry=merge(first.proposals,first.failures,{candidates:[{canonicalKey:'CHAR-6',spec:{visualIdentitySummary:'Sixth identity'}}],failures:[]});
+  assert.equal(Object.keys(retry.proposals).length,6);
+  assert.deepEqual(retry.failures,{});
+  assert.deepEqual(retry.proposals['CHAR-1'],candidates[0],'retry does not erase earlier drafts');
+  const failedRefresh=merge(retry.proposals,retry.failures,{candidates:[],failures:[failed]});
+  assert.deepEqual(failedRefresh.proposals['CHAR-6'],retry.proposals['CHAR-6'],'failed refresh keeps the earlier draft');
+  assert.deepEqual(failedRefresh.failures['CHAR-6'],failed,'failed refresh remains visible for retry');
+  const panel=read('src/views/pilot/VisualSpecPanel.vue');
+  const template=parse(panel,{filename:'VisualSpecPanel.vue'}).descriptor.template.content;
+  assert.match(template, /@click="retryFailed\(failure\.canonicalKey\)"/);
+  assert.match(template, /draftDiagnostics\?\.qualityWarnings/);
+  assert.match(panel, /canonicalKeys:\[canonicalKey\]/,'retry requests one failed identity');
+});
+
 test('canonical asset and storyboard writes retain preview and accepted authority', () => {
   const source = read('src/views/pilot/PilotShell.vue');
   assert.match(source, /api\("\/assets\/preview"/);
