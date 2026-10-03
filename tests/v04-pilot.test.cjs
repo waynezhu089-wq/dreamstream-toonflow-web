@@ -6,6 +6,7 @@ const { parse, compileTemplate } = require('@vue/compiler-sfc');
 const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+function visualBatchModule(){const code=ts.transpileModule(read('src/views/pilot/visualProposalBatch.ts'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const module={exports:{}};new Function('module','exports',code)(module,module.exports);return module.exports;}
 
 test('pilot workspace and persistent Agent templates compile', () => {
   for (const name of ['src/views/pilot/PilotShell.vue', 'src/views/pilot/ProjectAgentPanel.vue', 'src/views/pilot/VisualSpecPanel.vue']) {
@@ -57,6 +58,62 @@ test('Visual Spec partial batch retains successful drafts and clears only the re
   assert.match(template, /@click="retryFailed\(failure\.canonicalKey\)"/);
   assert.match(template, /draftDiagnostics\?\.qualityWarnings/);
   assert.match(panel, /canonicalKeys:\[canonicalKey\]/,'retry requests one failed identity');
+});
+
+test('Visual Spec pending queue excludes confirmed and real-reference assets and sends bounded sequential batches', async () => {
+  const {pendingVisualProposalKeys,runVisualProposalBatches,VISUAL_PROPOSAL_BATCH_SIZE}=visualBatchModule();
+  assert.equal(VISUAL_PROPOSAL_BATCH_SIZE,6);
+  for(const count of [0,1,6,7,13]){
+    const assets=Array.from({length:count},(_,index)=>({canonicalKey:`CHAR-${index+1}`,name:`Character ${index+1}`,status:'ACTIVE',sourcePolicy:'AI_ALLOWED',category:'CHAR'}));
+    assets.push({canonicalKey:'BRAND-001',status:'ACTIVE',sourcePolicy:'REAL_REQUIRED',category:'BRAND'});
+    assets.push({canonicalKey:'UI-001',status:'ACTIVE',sourcePolicy:'AI_ALLOWED',category:'UI'});
+    assets.push({canonicalKey:'OLD-001',status:'RETIRED',sourcePolicy:'AI_ALLOWED',category:'CHAR'});
+    const keys=pendingVisualProposalKeys(assets,[]),calls=[],progress=[];
+    assert.equal(keys.length,count);
+    const result=await runVisualProposalBatches(keys,async batch=>{calls.push(batch);return {candidates:batch.map(canonicalKey=>({canonicalKey,spec:{}})),failures:[]};},()=>{},item=>progress.push(item),()=>true,key=>key);
+    assert.deepEqual(calls.map(batch=>batch.length),count===0?[]:count===1?[1]:count===6?[6]:count===7?[6,1]:[6,6,1]);
+    assert.equal(result.aborted,false);assert.equal(result.progress.completed,count);assert.equal(result.progress.remaining,0);
+  }
+  const assets=[{canonicalKey:'CHAR-001',status:'ACTIVE',sourcePolicy:'AI_ALLOWED',category:'CHAR'},
+    {canonicalKey:'CHAR-002',status:'ACTIVE',sourcePolicy:'AI_ALLOWED',category:'CHAR'}];
+  assert.deepEqual(pendingVisualProposalKeys(assets,[{canonicalKey:'CHAR-001',effectiveStatus:'CONFIRMED'}]),['CHAR-002']);
+});
+
+test('Visual Spec all-pending keeps successes across partial batches and retries only failed keys', async () => {
+  const {runVisualProposalBatches,mergeVisualProposalResults}=visualBatchModule();
+  const keys=Array.from({length:13},(_,index)=>`CHAR-${index+1}`),calls=[],progress=[];
+  let proposals={},failures={};
+  const merge=result=>{const merged=mergeVisualProposalResults(proposals,failures,result);proposals=merged.proposals;failures=merged.failures;};
+  const request=async batch=>{calls.push([...batch]);return {candidates:batch.filter(key=>!['CHAR-2','CHAR-8'].includes(key)).map(canonicalKey=>({canonicalKey,spec:{identity:canonicalKey}})),
+    failures:batch.filter(key=>['CHAR-2','CHAR-8'].includes(key)).map(canonicalKey=>({canonicalKey,name:canonicalKey,code:'MODEL_FAILED',message:'请重试'}))};};
+  const result=await runVisualProposalBatches(keys,request,merge,item=>progress.push(item),()=>true,key=>key);
+  assert.deepEqual(calls.map(batch=>batch.length),[6,6,1]);
+  assert.deepEqual(result.progress,{total:13,completed:13,succeeded:11,failed:2,remaining:0});
+  assert.equal(Object.keys(proposals).length,11);assert.deepEqual(Object.keys(failures),['CHAR-2','CHAR-8']);
+  assert.equal(progress[1].completed,6);assert.equal(progress[1].failed,1,'first batch failure does not stop the next');
+  assert.equal(progress[2].completed,12);assert.equal(progress[2].failed,2,'second batch failure retains first batch successes');
+  const retryKeys=Object.keys(failures),retryCalls=[];
+  await runVisualProposalBatches(retryKeys,async batch=>{retryCalls.push([...batch]);return {candidates:batch.map(canonicalKey=>({canonicalKey,spec:{identity:canonicalKey}})),failures:[]};},merge,()=>{},()=>true,key=>key);
+  assert.deepEqual(retryCalls,[['CHAR-2','CHAR-8']]);assert.equal(Object.keys(proposals).length,13);assert.deepEqual(failures,{});
+  assert.deepEqual(proposals['CHAR-1'],{canonicalKey:'CHAR-1',spec:{identity:'CHAR-1'}});
+  const uncertainCalls=[];
+  const uncertain=await runVisualProposalBatches(keys.slice(0,7),async batch=>{uncertainCalls.push(batch.length);if(uncertainCalls.length===1)throw new Error('transport lost');return {candidates:batch.map(canonicalKey=>({canonicalKey,spec:{}})),failures:[]};},()=>{},()=>{},()=>true,key=>key);
+  assert.deepEqual(uncertainCalls,[6,1],'a failed request does not skip later bounded batches');
+  assert.equal(uncertain.progress.failed,6);assert.equal(uncertain.progress.succeeded,1);
+});
+
+test('Visual Spec old-scope response cannot mutate the new unit or start its next batch', async () => {
+  const {runVisualProposalBatches}=visualBatchModule();
+  let resolveRequest, current=true, applied=0, calls=0;
+  const pending=new Promise(resolve=>{resolveRequest=resolve;});
+  const run=runVisualProposalBatches(Array.from({length:7},(_,index)=>`A-${index}`),async()=>{calls++;return pending;},()=>{applied++;},()=>{},()=>current,key=>key);
+  current=false;resolveRequest({candidates:[{canonicalKey:'A-0',spec:{}}],failures:[]});
+  const result=await run;
+  assert.equal(result.aborted,true);assert.equal(calls,1);assert.equal(applied,0);
+  const panel=read('src/views/pilot/VisualSpecPanel.vue');
+  assert.match(panel,/批量生成全部待处理资产/);assert.match(panel,/只重试失败项/);
+  assert.match(panel,/pendingVisualProposalKeys\(props\.allAssets,props\.visualSpecs\)/);
+  assert.match(panel,/runVisualProposalBatches\(keys,/);
 });
 
 test('canonical asset and storyboard writes retain preview and accepted authority', () => {
