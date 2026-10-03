@@ -8,12 +8,32 @@ const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
 test('pilot workspace and persistent Agent templates compile', () => {
-  for (const name of ['src/views/pilot/PilotShell.vue', 'src/views/pilot/ProjectAgentPanel.vue']) {
+  for (const name of ['src/views/pilot/PilotShell.vue', 'src/views/pilot/ProjectAgentPanel.vue', 'src/views/pilot/VisualSpecPanel.vue']) {
     const parsed = parse(read(name), { filename: name });
     assert.equal(parsed.errors.length, 0, name);
     const result = compileTemplate({ source: parsed.descriptor.template.content, filename: name, id: name });
     assert.equal(result.errors.length, 0, name);
   }
+});
+
+test('OPT-027A asset card opens editable Visual Spec proposal with preview/confirm and derived Prompt status', () => {
+  const shell=read('src/views/pilot/PilotShell.vue');
+  const panel=read('src/views/pilot/VisualSpecPanel.vue');
+  const template=parse(panel,{filename:'VisualSpecPanel.vue'}).descriptor.template.content;
+  assert.match(shell, /<VisualSpecPanel v-if="selected"/);
+  assert.match(shell, /:visual-specs="state\.visualSpecs" :prompt-builds="state\.promptBuilds" @applied="reload"/);
+  assert.match(shell, /视觉规格：\{\{ visualFor\(asset\.canonicalKey\)/);
+  assert.match(template, /视觉规格 · \{\{ visualStatus \}\}/);
+  assert.match(template, /Prompt · \{\{ promptStatus \}\}/);
+  assert.match(template, /v-model="draft\.visualIdentitySummary"[^>]+@input="dirty"/);
+  assert.match(template, /v-model="element\.promotionRecommendation"[^>]+@change="dirty"/);
+  assert.match(template, /:disabled="working \|\| preview\.issues\.length>0" @click="applySpec"/);
+  assert.match(panel, /api\('\/visual-spec\/propose'/);
+  assert.match(panel, /api\('\/visual-spec\/preview'/);
+  assert.match(panel, /api\('\/visual-spec\/apply'/);
+  assert.match(panel, /sourceAssetRevision:props\.asset\.revision,spec:draft\.value,previewHash:preview\.value\.previewHash/);
+  assert.match(panel, /promptBuilds\.find\(item=>item\.canonicalKey===props\.asset\.canonicalKey&&item\.effectiveStatus==='READY'\)/);
+  assert.doesNotMatch(panel, /Comfy|image\.generate|\/production\/storyboard\/batchGenerateImage/);
 });
 
 test('canonical asset and storyboard writes retain preview and accepted authority', () => {
