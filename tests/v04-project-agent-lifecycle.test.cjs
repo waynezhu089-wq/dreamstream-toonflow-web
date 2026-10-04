@@ -36,8 +36,8 @@ function mount(t, post, props = {}) {
   };
   new Function('require', 'module', 'exports', code)(requireMock, module, module.exports);
   const el = document.createElement('div'); document.body.append(el);
-  const app = vue.createApp({ render: () => vue.h(module.exports.default,
-    { projectId: 7, scriptId: 2, stage: 'creative', routeName: 'pilot/creative', selected: null, creativeMode: true, ...props }) });
+  const currentProps = vue.reactive({ projectId: 7, scriptId: 2, stage: 'creative', routeName: 'pilot/creative', selected: null, creativeMode: true, ...props });
+  const app = vue.createApp({ render: () => vue.h(module.exports.default, { ...currentProps }) });
   app.component('t-dialog', { props: ['visible'], render() { return this.visible ? vue.h('div', { class: 'dialog-stub' }, this.$slots.default?.()) : null; } });
   app.mount(el);
   t.after(() => { app.unmount(); el.remove(); });
@@ -46,8 +46,69 @@ function mount(t, post, props = {}) {
     const input = el.querySelector('textarea'); input.value = text; input.dispatchEvent(new Event('input', { bubbles: true }));
     await vue.nextTick(); button('发送').click(); await settle();
   };
-  return { el, button, send, studioActions };
+  return { el, button, send, studioActions, setProps: next => Object.assign(currentProps, next) };
 }
+
+test('Studio DISCUSS completes as an ordinary answer without a proposal card', async t => {
+  let reads=0;
+  const panel=mount(t,async url=>{
+    if(url==='/v04/agent/history') return {data:{messages:++reads===1?[]:[
+      {id:'discuss-user',role:'user',content:'男孩和鲸腹场景搭吗？'},
+      {id:'discuss-agent',role:'assistant',content:'两者的尺度可以形成对照。'},
+    ]}};
+    assert.equal(url,'/v04/agent/studio-turn');
+    return {data:{mode:'DISCUSS',reply:'两者的尺度可以形成对照。',userMessageId:'discuss-user',assistantMessageId:'discuss-agent'}};
+  },{studioMode:true});
+  await settle();await panel.send('男孩和鲸腹场景搭吗？');
+  assert.match(panel.el.querySelector('.turn.assistant').textContent,/尺度可以形成对照/);
+  assert.equal(panel.el.querySelector('.studio-proposal'),null);
+});
+
+test('known terminal Studio failure stays FAILED and retry answers the persisted user message once', async t => {
+  let reads=0,starts=0,retries=0;
+  const saved={id:'saved-studio-user',role:'user',content:'男孩和鲸腹场景搭吗？',createTime:Date.now()};
+  const panel=mount(t,async (url,body)=>{
+    if(url==='/v04/agent/history') return {data:{messages:++reads===1?[]:[saved,...(retries?[{id:'studio-answer',role:'assistant',content:'很搭，空间尺度形成对照。'}]:[])]}};
+    if(url==='/v04/agent/studio-turn') {starts++;throw {code:'PILOT_STUDIO_JSON_EXTRACTION_FAILED',message:'消息已保存，但本次回答失败。',terminal:true,userMessageId:saved.id,retryAllowed:true,checkStatusUseful:false};}
+    if(url==='/v04/agent/studio-turn/retry') {retries++;assert.equal(body.userMessageId,saved.id);assert.equal(body.context.projectId,7);return {data:{mode:'DISCUSS',reply:'很搭，空间尺度形成对照。',userMessageId:saved.id,assistantMessageId:'studio-answer'}};}
+    throw Error(`unexpected ${url}`);
+  },{studioMode:true});
+  await settle();await panel.send(saved.content);
+  assert.match(panel.el.querySelector('.turn.assistant [role="alert"]').textContent,/消息已保存.*回答失败/);
+  assert.equal(panel.button('检查状态'),undefined);
+  assert.ok(panel.button('重试'));
+  assert.equal(panel.el.querySelectorAll('.turn.user').length,1);
+  panel.button('重试').click();await settle();
+  assert.equal(starts,1,'retry must not send another Studio turn');
+  assert.equal(retries,1);assert.equal(panel.el.querySelectorAll('.turn.user').length,1);
+  assert.match(panel.el.querySelector('.turn.assistant').textContent,/空间尺度形成对照/);
+});
+
+test('Studio transport uncertainty still offers status check, never a blind retry', async t => {
+  let reads=0;
+  const panel=mount(t,async url=>{
+    if(url==='/v04/agent/history') return {data:{messages:++reads===1?[]:[{id:'saved-uncertain',role:'user',content:'讨论一下',createTime:Date.now()}]}};
+    if(url==='/v04/agent/studio-turn') throw Error('连接中断');
+    throw Error(`unexpected ${url}`);
+  },{studioMode:true});
+  await settle();await panel.send('讨论一下');
+  assert.match(panel.el.querySelector('.turn.assistant [role="alert"]').textContent,/结果尚不确定/);
+  assert.ok(panel.button('检查状态'));assert.equal(panel.button('重试'),undefined);
+});
+
+test('Studio retry response from the old project cannot enter a switched project', async t => {
+  const late=deferred();let reads=0;
+  const panel=mount(t,async url=>{
+    if(url==='/v04/agent/history') return {data:{messages:++reads===1?[]:[{id:'old-user',role:'user',content:'继续',createTime:Date.now()}]}};
+    if(url==='/v04/agent/studio-turn') throw {code:'PILOT_STUDIO_EMPTY_RESPONSE',message:'消息已保存，但本次回答失败。',terminal:true,userMessageId:'old-user',retryAllowed:true};
+    if(url==='/v04/agent/studio-turn/retry') return late.promise;
+    throw Error(`unexpected ${url}`);
+  },{studioMode:true});
+  await settle();await panel.send('继续');panel.button('重试').click();await settle();
+  panel.setProps({projectId:8,scriptId:3});await settle();
+  late.resolve({data:{mode:'DISCUSS',reply:'旧项目的回复',userMessageId:'old-user',assistantMessageId:'old-answer'}});await settle();
+  assert.doesNotMatch(panel.el.textContent,/旧项目的回复/);
+});
 
 test('Studio uses the one Agent composer and keeps a controlled proposal in the same conversation turn', async t => {
   const action = { targetType: 'VISUAL_SPEC', targetKey: 'CHAR-001', summary: '收瘦体型', rationale: '保持年龄感', proposal: { canonicalKey: 'CHAR-001' }, applied: false };

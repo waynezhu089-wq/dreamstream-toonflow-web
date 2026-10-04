@@ -47,7 +47,7 @@ import { useV04ProposalWorkspace } from "@/stores/v04ProposalWorkspace";
 type Attachment = { id: string; name: string; mimeType: string; references?: { targetType: string }[] };
 type Phase = "thinking" | "analyzing" | "answering" | "checking" | "failed" | "uncertain" | "complete";
 type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; actionId?: string; relatedUserMessageId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
-type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; optionalDraft?: any; knownFailure?: string };
+type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; optionalDraft?: any; knownFailure?: string; persistedUserMessageId?: string };
 type Target = "brief" | "treatment" | "script";
 const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; scopeLabel?: string; acceptStudioProposal?: (action: any) => Promise<void> }>();
 const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void; (e: "studio-professional"): void }>();
@@ -120,6 +120,30 @@ function addFiles(files: FileList | File[]) {
 function onFiles(event: Event) { const input = event.target as HTMLInputElement; if (input.files) addFiles(input.files); input.value = ""; }
 function onDrop(event: DragEvent) { if (event.dataTransfer?.files) addFiles(event.dataTransfer.files); }
 function asDataUrl(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); }); }
+async function finishStudioResponse(request: Submission, response: any) {
+  if (request.generation !== generation) return;
+  const agent = localAgent(request.id);
+  if (response.data.mode === "PROPOSE_CHANGE" && response.data.actionProposal && response.data.assistantMessageId)
+    proposalWorkspace.putStudioAction(response.data.assistantMessageId, response.data.actionProposal,
+      `${request.ctx.projectId}:${request.ctx.scriptId}`);
+  if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.actionId = response.data.assistantMessageId; agent.error = undefined; agent.retryable = false; agent.checkable = false; }
+  scrollToLatest();
+  if (await load(false)) removeLocal(request.id);
+  else if (agent && request.generation === generation) agent.phase = "complete";
+}
+async function showStudioTerminal(request: Submission, failure: any) {
+  const agent = localAgent(request.id);
+  request.persistedUserMessageId = failure.userMessageId;
+  request.knownFailure = failure.message || "消息已保存，但 Project Agent 本次回答失败。";
+  if (agent) {
+    agent.phase = "failed"; agent.content = ""; agent.error = request.knownFailure;
+    agent.relatedUserMessageId = failure.userMessageId;
+    agent.retryable = failure.retryAllowed === true; agent.checkable = false;
+  }
+  const history = await load(false);
+  if (history?.some(m => m.id === failure.userMessageId)) removeLocalUser(request.id);
+  scrollToLatest();
+}
 async function submit(request: Submission) {
   const own = request.generation;
   try {
@@ -146,16 +170,19 @@ async function submit(request: Submission) {
       }
       return;
     }
-    if (studioTurn && response.data.mode === "PROPOSE_CHANGE" && response.data.actionProposal && response.data.assistantMessageId) {
-      proposalWorkspace.putStudioAction(response.data.assistantMessageId, response.data.actionProposal,
-        `${request.ctx.projectId}:${request.ctx.scriptId}`);
+    if (studioTurn) await finishStudioResponse(request, response);
+    else {
+      if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.error = undefined; }
+      scrollToLatest();
+      if (await load(false)) removeLocal(request.id);
+      else if (agent) agent.phase = "complete";
     }
-    if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.actionId = response.data.assistantMessageId; agent.error = undefined; }
-    scrollToLatest();
-    if (await load(false)) removeLocal(request.id);
-    else if (agent) agent.phase = "complete";
   } catch (e: any) {
     if (own !== generation) return;
+    if (props.studioMode && request.files.length === 0 && e?.terminal === true && typeof e?.userMessageId === "string") {
+      await showStudioTerminal(request, e);
+      return;
+    }
     const agent = localAgent(request.id);
     if (agent) {
       const persisted = ["PILOT_IMAGE_MODEL_UNSUPPORTED", "PILOT_AGENT_MODEL_FAILED"].includes(e?.code);
@@ -192,6 +219,26 @@ async function send() {
 async function retryRequest(requestId: string) {
   const request = submissions.get(requestId), agent = localAgent(requestId);
   if (!request || !agent?.retryable || busy.value) return;
+  if (request.persistedUserMessageId) {
+    const own = request.generation;
+    agent.phase = "thinking"; agent.content = ""; agent.error = undefined; agent.retryable = false; agent.checkable = false;
+    busy.value = true; scrollToLatest();
+    try {
+      const response: any = await axios.post("/v04/agent/studio-turn/retry", { context: request.ctx,
+        userMessageId: request.persistedUserMessageId,
+        ...(request.optionalDraft ? { optionalDraft: request.optionalDraft } : {}) });
+      if (own === generation) await finishStudioResponse(request, response);
+    } catch (e: any) {
+      if (own !== generation) return;
+      if (e?.terminal === true && e?.userMessageId === request.persistedUserMessageId) await showStudioTerminal(request, e);
+      else {
+        agent.phase = "uncertain";
+        agent.error = e?.code === "PILOT_STUDIO_ALREADY_ANSWERED" ? "原消息已有回复，请刷新对话。" : `${e?.message || "连接或处理失败"}。结果尚不确定，请先检查状态，避免重复发送。`;
+        agent.checkable = true;
+      }
+    } finally { if (own === generation) { busy.value = false; scrollToLatest(); } }
+    return;
+  }
   request.chatDispatched = false;
   request.knownFailure = undefined;
   agent.phase = request.files.length ? "analyzing" : "thinking"; agent.content = ""; agent.error = undefined; agent.retryable = false; agent.checkable = false; agent.visionConfigurable = false;
