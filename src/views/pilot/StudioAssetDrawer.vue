@@ -13,23 +13,25 @@
     <section v-if="item.draftPackage" class="draft-summary"><strong>Studio 文本草案</strong>
       <p>{{ item.draftPackage.visualSpecDraft?.visualIdentitySummary || '正在准备视觉描述…' }}</p>
       <p>生成意图：{{ item.draftPackage.generationIntent || '待确定' }} · Prompt：{{ item.draftPackage.draftPromptIR ? '草案已准备' : '待编译' }}</p>
-      <p>图片执行器：{{ item.draftPackage.stage === 'WAITING_IMAGE_EXECUTOR' ? '等待接入' : '尚未执行' }}</p>
+      <p>图片执行器：{{ draftImageStatus(item.imageJob) || (item.draftPackage.stage === 'WAITING_IMAGE_EXECUTOR' ? '等待生成' : '尚未执行') }}</p>
+      <p v-if="item.imageJob?.errorMessage" class="warning">{{ item.imageJob.errorMessage }}（{{ item.imageJob.errorCode }}）</p>
       <p v-if="item.draftPackage.error" class="warning">{{ item.draftPackage.error.message }}</p>
       <details v-if="draftNotes.length" class="draft-notes"><summary>AI 草案提示（{{ draftNotes.length }}）</summary><p v-for="(note,index) in draftNotes" :key="index">{{ note }}</p></details>
       <small>草案不是已确认 Visual Spec 或正式 Prompt Build。</small>
     </section>
     <p v-if="item.status==='需要处理'" class="warning">当前视觉草案或已确认版本需要单独审查。</p>
-    <div class="actions"><button type="button" @click="$emit('modify')">让 Agent 修改</button><button v-if="!real" type="button" @click="$emit('regenerate')">重新生成视觉草案</button><button type="button" @click="$emit('professional')">进入专业精修</button></div>
+    <div class="actions"><button type="button" @click="$emit('modify')">让 Agent 修改</button><button v-if="!real && item.draftPackage?.stage==='WAITING_IMAGE_EXECUTOR'" type="button" @click="$emit('draft-image')">{{ item.imageJob ? '重新生成草图' : '生成草图' }}</button><button v-if="!real" type="button" @click="$emit('regenerate')">重新生成视觉草案</button><button type="button" @click="$emit('professional')">进入专业精修</button></div>
   </aside>
 </template>
 <script setup lang="ts">
 import { computed, watch } from 'vue';
 import { isRealReference } from './studioPresentation';
 import { studioDraftDiagnostics } from './studioDraftDiagnostics';
+import { draftImageStatus } from './studioDraftImageView';
 import { drawerBounds } from './studioLayout';
 import { useResizablePane } from './useResizablePane';
 const props = defineProps<{ item: any | null; imageUrl?: string | null; width: number }>();
-const emit = defineEmits<{(e:'close'):void;(e:'modify'):void;(e:'regenerate'):void;(e:'professional'):void;(e:'width-change',value:number):void}>();
+const emit = defineEmits<{(e:'close'):void;(e:'modify'):void;(e:'regenerate'):void;(e:'draft-image'):void;(e:'professional'):void;(e:'width-change',value:number):void}>();
 const currentWidth = computed({get:()=>props.width,set:value=>emit('width-change',value)});
 const resize = useResizablePane({value:currentWidth,defaultValue:440,axis:'x',reverse:true,step:16,
   bounds:()=>drawerBounds(window.innerWidth),measure:event=>window.innerWidth-event.clientX-19});

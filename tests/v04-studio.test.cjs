@@ -11,6 +11,24 @@ function source(file) { const absolute=path.resolve(root,file),module={exports:{
   new Function('module','exports','require',compiled)(module,module.exports,name=>name.startsWith('.')?source(path.join(path.dirname(absolute),name+'.ts')):name.startsWith('@/')?source(path.join(root,'src',name.slice(2)+'.ts')):require(name));return module.exports; }
 function storage(){const map=new Map();global.sessionStorage={getItem:key=>map.get(key)||null,setItem:(key,value)=>map.set(key,value),removeItem:key=>map.delete(key)};return map;}
 
+test('OPT-028 draft image view only displays a current scoped job and restores its status from persisted identity',()=>{
+  const {currentDraftImageJob,draftImageStatus}=source('src/views/pilot/studioDraftImageView.ts');
+  const asset={canonicalKey:'CHAR-001',revision:2};
+  const draft={imageJobId:'job-current',stage:'WAITING_IMAGE_EXECUTOR'};
+  const statuses=['QUEUED','RUNNING','SUCCEEDED','FAILED'];
+  const labels=['排队中','生成中','草图已生成','生成失败'];
+  for(let i=0;i<statuses.length;i++){
+    const job={id:'job-current',canonicalKey:'CHAR-001',sourceAssetRevision:2,status:statuses[i]};
+    assert.equal(draftImageStatus(currentDraftImageJob(asset,draft,[job])),labels[i]);
+  }
+  assert.equal(currentDraftImageJob(asset,draft,[{id:'job-current',canonicalKey:'CHAR-001',sourceAssetRevision:1,status:'SUCCEEDED'}]),null,'old asset revision cannot become current');
+  assert.equal(currentDraftImageJob(asset,draft,[{id:'job-current',canonicalKey:'FX-001',sourceAssetRevision:2,status:'SUCCEEDED'}]),null,'other asset cannot become current');
+  assert.equal(currentDraftImageJob(asset,{...draft,imageJobId:null},[{id:'job-current',canonicalKey:'CHAR-001',sourceAssetRevision:2,status:'SUCCEEDED'}]),null,'new draft package cannot inherit old output');
+  const studio=read('src/views/pilot/StudioWorkspace.vue');
+  assert.match(studio,/\/studio\/draft-image\/jobs/);assert.match(studio,/\/studio\/artifact\/\$\{current.projectId\}/);
+  assert.match(studio,/token===generation/,'late fetch cannot install an image after scope change');
+});
+
 test('Studio routes, deep links and component templates are valid',()=>{
   const router=read('src/router/index.ts'),login=read('src/pages/login/index.vue'),professional=read('src/views/pilot/PilotShell.vue');
   assert.match(router,/path: "\/"[\s\S]*?redirect: "\/studio"/);
