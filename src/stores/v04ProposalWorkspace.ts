@@ -11,16 +11,22 @@ type ScopedDrafts = {
   assetProposal: any | null;
   storyboardDrafts: any[];
   creativeProposal: any | null;
+  studioActions: Record<string, { action: any; handled: boolean }>;
 };
 const prefix = "v04ProposalWorkspace:v1:";
-const empty = (): ScopedDrafts => ({ visualSpecProposals: {}, visualSpecFailures: {}, batchSummary: null, batchKeys: [], assetProposal: null, storyboardDrafts: [], creativeProposal: null });
+const empty = (): ScopedDrafts => ({ visualSpecProposals: {}, visualSpecFailures: {}, batchSummary: null, batchKeys: [], assetProposal: null, storyboardDrafts: [], creativeProposal: null, studioActions: {} });
 export const proposalScopeKey = (projectId: number, scriptId: number) => `${projectId}:${scriptId}`;
 
 export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () => {
   const activeKey = ref("");
   const entries = reactive<Record<string, ScopedDrafts>>({});
   const batchRun = ref<VisualBatchProgress | null>(null);
-  const current = () => entries[activeKey.value] || (entries[activeKey.value] = empty());
+  const current = () => {
+    const entry = entries[activeKey.value] || (entries[activeKey.value] = empty());
+    // A live Pilot tab can retain a pre-Studio draft object during Vite HMR.
+    entry.studioActions ||= {};
+    return entry;
+  };
   function setScope(projectId: number, scriptId: number) {
     const key = proposalScopeKey(projectId, scriptId);
     if (key !== activeKey.value) batchRun.value = null;
@@ -36,6 +42,7 @@ export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () =>
           assetProposal: parsed.assetProposal || null,
           storyboardDrafts: parsed.storyboardDrafts || [],
           creativeProposal: parsed.creativeProposal || null,
+          studioActions: parsed.studioActions || {},
         } : empty();
       } catch { entries[key] = empty(); }
     }
@@ -49,6 +56,11 @@ export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () =>
   function removeVisual(canonicalKey: string, key = activeKey.value) {
     if (entries[key]) delete entries[key].visualSpecProposals[canonicalKey];
   }
+  function putStudioAction(messageId: string, action: any, key = activeKey.value) {
+    if (!entries[key]) entries[key] = empty();
+    entries[key].studioActions ||= {};
+    entries[key].studioActions[messageId] = { action, handled: false };
+  }
   function isFresh(canonicalKey: string, revision: number, key = activeKey.value) {
     return Number(entries[key]?.visualSpecProposals[canonicalKey]?.sourceAssetRevision) === Number(revision);
   }
@@ -58,5 +70,5 @@ export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () =>
       sessionStorage.setItem(prefix + key, JSON.stringify(value));
     }
   }, { deep: true });
-  return { activeKey, entries, batchRun, current, setScope, putVisual, removeVisual, isFresh };
+  return { activeKey, entries, batchRun, current, setScope, putVisual, removeVisual, putStudioAction, isFresh };
 });

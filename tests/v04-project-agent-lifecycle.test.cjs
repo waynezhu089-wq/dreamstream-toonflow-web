@@ -19,11 +19,16 @@ const code = ts.transpileModule(compileScript(descriptor, { id: 'v04-agent', inl
 const settle = async () => { for (let i = 0; i < 5; i++) { await new Promise(resolve => setTimeout(resolve, 0)); await vue.nextTick(); } };
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 
-function mount(t, post) {
+function mount(t, post, props = {}) {
   const module = { exports: {} };
+  const studioActions = {};
   const requireMock = id => {
     if (id === '@/utils/axios') return { post, get: async () => new Blob() };
     if (id === '@/stores/setting') return () => ({});
+    if (id === '@/stores/v04ProposalWorkspace') return { useV04ProposalWorkspace: () => ({
+      current: () => ({ visualSpecProposals: {}, studioActions }),
+      putStudioAction: (messageId, action) => { studioActions[messageId] = vue.reactive({ action, handled: false }); },
+    }) };
     if (id === '@/components/ModelPresets.vue') return { render: () => vue.h('div', 'Model Presets') };
     if (id === 'pinia') return { storeToRefs: () => ({ themeSetting: vue.ref({ mode: 'dark' }) }) };
     if (id === 'md-editor-v3') return { MdPreview: { props: ['modelValue'], template: '<div class="md-preview">{{ modelValue }}</div>' } };
@@ -32,7 +37,7 @@ function mount(t, post) {
   new Function('require', 'module', 'exports', code)(requireMock, module, module.exports);
   const el = document.createElement('div'); document.body.append(el);
   const app = vue.createApp({ render: () => vue.h(module.exports.default,
-    { projectId: 7, scriptId: 2, stage: 'creative', routeName: 'pilot/creative', selected: null, creativeMode: true }) });
+    { projectId: 7, scriptId: 2, stage: 'creative', routeName: 'pilot/creative', selected: null, creativeMode: true, ...props }) });
   app.component('t-dialog', { props: ['visible'], render() { return this.visible ? vue.h('div', { class: 'dialog-stub' }, this.$slots.default?.()) : null; } });
   app.mount(el);
   t.after(() => { app.unmount(); el.remove(); });
@@ -41,8 +46,34 @@ function mount(t, post) {
     const input = el.querySelector('textarea'); input.value = text; input.dispatchEvent(new Event('input', { bubbles: true }));
     await vue.nextTick(); button('发送').click(); await settle();
   };
-  return { el, button, send };
+  return { el, button, send, studioActions };
 }
+
+test('Studio uses the one Agent composer and keeps a controlled proposal in the same conversation turn', async t => {
+  const action = { targetType: 'VISUAL_SPEC', targetKey: 'CHAR-001', summary: '收瘦体型', rationale: '保持年龄感', proposal: { canonicalKey: 'CHAR-001' }, applied: false };
+  let accepted = 0, historyReads = 0;
+  const panel = mount(t, (url, body) => {
+    if (url === '/v04/agent/history') return Promise.resolve({ data: { messages: ++historyReads === 1 ? [] : [
+      { id: 'studio-user', role: 'user', content: '让男孩再瘦一点', createTime: Date.now() },
+      { id: 'studio-assistant', role: 'assistant', content: '建议收瘦体型。', createTime: Date.now() + 1 },
+    ] } });
+    assert.equal(url, '/v04/agent/studio-turn');
+    assert.equal(body.context.selectedObject.key, 'CHAR-001');
+    return Promise.resolve({ data: { mode: 'PROPOSE_CHANGE', reply: '建议收瘦体型。', actionProposal: action,
+      userMessageId: 'studio-user', assistantMessageId: 'studio-assistant' } });
+  }, { studioMode: true, selected: { type: 'ASSET', key: 'CHAR-001' }, scopeLabel: '正在讨论：男孩',
+    acceptStudioProposal: async proposal => { assert.deepEqual(proposal, action); accepted++; } });
+  await settle(); await panel.send('让男孩再瘦一点');
+  assert.equal(panel.el.querySelectorAll('.composer').length, 1);
+  assert.match(panel.el.textContent, /正在讨论：男孩/);
+  assert.match(panel.el.querySelector('.studio-proposal').textContent, /收瘦体型.*提案尚未应用/s);
+  assert.equal(accepted, 0, 'the model response cannot apply project truth');
+  assert.equal(panel.button('接受修改并预览').disabled, false);
+  panel.button('接受修改并预览').click(); await settle();
+  assert.equal(accepted, 1);
+  assert.equal(panel.studioActions['studio-assistant'].handled, true);
+  assert.match(panel.el.querySelector('.studio-proposal').textContent, /已送入受控预览/);
+});
 
 test('send immediately shows a distinct user turn and animated Agent turn, then replaces it with authoritative history', async t => {
   const chat = deferred(), refreshed = deferred();

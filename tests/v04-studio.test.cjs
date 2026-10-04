@@ -24,7 +24,68 @@ test('Studio routes, deep links and component templates are valid',()=>{
   }
   const studio=read('src/views/pilot/StudioWorkspace.vue');
   assert.match(studio,/ProjectAgentPanel/);assert.match(studio,/goProfessional\(/);
-  assert.match(studio,/\/agent\/action-proposal/);
+  assert.doesNotMatch(parse(studio).descriptor.template.content,/\/agent\/action-proposal|actionInstruction|agent-action textarea|提出受控修改/);
+  const agent=read('src/views/pilot/ProjectAgentPanel.vue');
+  assert.match(agent,/\/v04\/agent\/studio-turn/);
+  assert.match(studio,/:studio-mode="true"/);
+});
+
+test('Studio has one Agent composer, a scoped proposal card and no duplicate action input',()=>{
+  const studio=read('src/views/pilot/StudioWorkspace.vue');
+  const panel=read('src/views/pilot/ProjectAgentPanel.vue');
+  const template=parse(studio).descriptor.template.content;
+  assert.equal((template.match(/<ProjectAgentPanel\b/g)||[]).length,1);
+  assert.doesNotMatch(template,/actionInstruction|提出受控修改|agent-action/);
+  assert.match(template,/@modify="focusAgent"/);
+  assert.match(studio,/agentPanel\.value\?\.focusComposer\(\)/);
+  assert.equal((parse(panel).descriptor.template.content.match(/<textarea\b/g)||[]).length,1);
+  assert.match(panel,/studioTurn \? "\/v04\/agent\/studio-turn" : "\/v04\/agent\/chat"/);
+  assert.match(panel,/proposalWorkspace\.putStudioAction\(response\.data\.assistantMessageId/);
+  assert.match(panel,/studioActionFor\(m\)/);
+  assert.match(panel,/acceptStudioProposal/);
+  assert.match(panel,/request\.files\.length === 0/,'image messages retain the attachment/vision route');
+  assert.match(panel,/own !== generation/,'late results cannot enter a switched project');
+});
+
+test('Studio layout defaults, clamps and preferences survive project changes without production writes',()=>{
+  const { defaultStudioLayout, mainBounds, verticalBounds, drawerBounds, readStudioLayout, saveStudioLayout, studioLayoutKey, clamp }=source('src/views/pilot/studioLayout.ts');
+  const map=new Map(),store={getItem:key=>map.get(key)||null,setItem:(key,value)=>map.set(key,value)};
+  assert.deepEqual(readStudioLayout(store),{mainSplitRatio:58,leftVerticalSplitRatio:62,assetDrawerWidth:440});
+  assert.equal(clamp(10,mainBounds(1000).min,mainBounds(1000).max),42);
+  assert.equal(clamp(90,mainBounds(1000).min,mainBounds(1000).max),65.3);
+  assert.ok(Math.abs(clamp(0,verticalBounds(800).min,verticalBounds(800).max)-27.5)<.001);
+  assert.ok(Math.abs(clamp(100,verticalBounds(800).min,verticalBounds(800).max)-49.125)<.001);
+  assert.deepEqual(drawerBounds(1200),{min:320,max:780});
+  const changed={mainSplitRatio:64,leftVerticalSplitRatio:55,assetDrawerWidth:500};
+  saveStudioLayout(changed,store);assert.deepEqual(readStudioLayout(store),changed);
+  assert.equal(map.has(studioLayoutKey),true);
+  map.set(studioLayoutKey,JSON.stringify({mainSplitRatio:999,leftVerticalSplitRatio:'bad',assetDrawerWidth:-1}));
+  assert.deepEqual(readStudioLayout(store),defaultStudioLayout);
+  const studio=read('src/views/pilot/StudioWorkspace.vue');
+  assert.match(studio,/mainResize\.cancel\(\);verticalResize\.cancel\(\)/,'scope switch ends active drag');
+  assert.match(studio,/@media\(max-width:999px\)/,'narrow view stacks panes');
+  assert.doesNotMatch(read('src/views/pilot/studioLayout.ts'),/axios|fetch|project\/apply/);
+});
+
+test('resizable separator supports pointer capture, keyboard, reset and clean release',()=>{
+  const file='src/views/pilot/useResizablePane.ts';
+  const code=ts.transpileModule(read(file),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const module={exports:{}},listeners=new Map();
+  global.document={body:{style:{userSelect:'text'}}};
+  global.window={addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:(name)=>listeners.delete(name)};
+  new Function('module','exports','require',code)(module,module.exports,name=>name==='vue'?{onBeforeUnmount:()=>{}}:source('src/views/pilot/studioLayout.ts'));
+  const value={value:58};
+  let captured=false;
+  const handle={setPointerCapture:()=>{captured=true;},hasPointerCapture:()=>captured,releasePointerCapture:()=>{captured=false;}};
+  const split=module.exports.useResizablePane({value,defaultValue:58,axis:'x',bounds:()=>({min:42,max:65}),measure:event=>event.clientX/10});
+  const event={button:0,pointerId:7,currentTarget:handle,clientX:620,preventDefault(){},stopPropagation(){}};
+  split.pointerdown(event);assert.equal(captured,true);assert.equal(document.body.style.userSelect,'none');
+  split.pointermove(event);assert.equal(value.value,62);
+  split.keydown({key:'ArrowRight',preventDefault(){},stopPropagation(){}});assert.equal(value.value,64);
+  split.pointermove({...event,clientX:900});assert.equal(value.value,65);
+  split.reset();assert.equal(value.value,58);
+  split.pointercancel();assert.equal(captured,false);assert.equal(document.body.style.userSelect,'text');assert.equal(listeners.size,0);
+  delete global.document;delete global.window;
 });
 
 test('Asset World groups and statuses use current truth and do not invent images',()=>{
@@ -50,6 +111,10 @@ test('Asset World groups and statuses use current truth and do not invent images
 test('Proposal Workspace isolates project and unit, persists source revision only as draft',async()=>{
   storage();setActivePinia(createPinia());const {useV04ProposalWorkspace}=source('src/stores/v04ProposalWorkspace.ts');
   const store=useV04ProposalWorkspace();store.setScope(10,1);store.putVisual({canonicalKey:'CHAR-001',sourceAssetRevision:3,spec:{name:'draft'}});
+  delete store.entries['10:1'].studioActions; // Existing open tabs can hold the older in-memory shape.
+  assert.deepEqual(store.current().studioActions,{});
+  store.putStudioAction('message-1',{summary:'调整男孩视觉规格'});
+  assert.equal(store.current().studioActions['message-1'].handled,false);
   assert.equal(store.isFresh('CHAR-001',3),true);assert.equal(store.isFresh('CHAR-001',4),false);
   store.setScope(10,2);assert.deepEqual(Object.keys(store.current().visualSpecProposals),[]);
   store.setScope(11,1);assert.deepEqual(Object.keys(store.current().visualSpecProposals),[]);

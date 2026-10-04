@@ -1,11 +1,12 @@
 <template>
-  <aside class="agent" aria-label="项目智能体">
+  <aside class="agent" :class="{ 'studio-agent': studioMode }" aria-label="项目智能体">
     <header>
       <div><strong>Project Agent</strong><small>同一个项目，对话持续保留</small></div>
       <span class="status">{{ busy ? "思考中" : "协作中" }}</span>
     </header>
-    <p class="context">{{ stage }} · {{ selected ? `${selected.type} ${selected.key}` : "整个项目" }}</p>
-    <div v-if="creativeMode" class="quick-actions"><button :disabled="busy" @click="suggest('brief')">提出 Brief 修改</button><button :disabled="busy" @click="suggest('treatment')">生成 Treatment 提案</button><button :disabled="busy" @click="suggest('script')">生成 Script 提案</button></div>
+    <p class="context">{{ studioMode ? scopeLabel || '正在讨论：整个项目' : `${stage} · ${selected ? `${selected.type} ${selected.key}` : '整个项目'}` }}</p>
+    <details v-if="creativeMode && studioMode" class="more-actions"><summary>更多创意操作</summary><div class="quick-actions"><button :disabled="busy" @click="suggest('brief')">提出 Brief 修改</button><button :disabled="busy" @click="suggest('treatment')">生成 Treatment 提案</button><button :disabled="busy" @click="suggest('script')">生成 Script 提案</button></div></details>
+    <div v-else-if="creativeMode" class="quick-actions"><button :disabled="busy" @click="suggest('brief')">提出 Brief 修改</button><button :disabled="busy" @click="suggest('treatment')">生成 Treatment 提案</button><button :disabled="busy" @click="suggest('script')">生成 Script 提案</button></div>
     <div ref="feed" class="feed" role="log" aria-live="polite">
       <p v-if="!messages.length" class="empty">先聊创意。讨论和图片会跟随这个项目；Agent 的建议不会直接改动正式内容。</p>
       <div v-for="m in messages" :key="m.id" class="turn" :class="[m.role, m.phase || 'complete']">
@@ -15,6 +16,7 @@
         <div v-if="m.error" class="turn-error" role="alert"><span>{{ m.error }}</span><div class="turn-actions"><button v-if="m.visionConfigurable" type="button" @click="showVisionSettings=true">配置视觉模型</button><button v-if="m.retryable" type="button" :disabled="busy" @click="retryRequest(m.requestId!)">重试</button><button v-if="m.checkable" type="button" :disabled="busy" @click="checkStatus(m.requestId!)">检查状态</button></div></div>
         <p v-if="m.role === 'user'" class="user-content">{{ m.content }}</p>
         <MdPreview v-else-if="m.content && !['thinking','analyzing','checking'].includes(m.phase || '')" class="agent-content" :theme="markdownTheme" :modelValue="m.content" preview-only preview-theme="github" />
+        <div v-if="studioMode && studioActionFor(m)" class="studio-proposal"><strong>建议修改 · {{ studioActionFor(m).action.summary }}</strong><p>{{ studioActionFor(m).action.rationale }}</p><small>提案尚未应用；预览和人工确认后才会改变正式内容。</small><div v-if="!studioActionFor(m).handled" class="turn-actions"><button type="button" :disabled="busy" @click="acceptStudioAction(m)">接受修改并预览</button><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div><small v-else>已送入受控预览</small></div>
         <div v-for="a in m.attachments || []" :key="a.id" class="attachment">
           <img v-if="imageUrls[a.id]" :src="imageUrls[a.id]" :alt="a.name" />
           <span>{{ a.name }} · 对话参考</span>
@@ -27,7 +29,7 @@
     <div v-if="referencePreview" class="confirm-reference"><strong>确认图片用途</strong><p>{{ referencePreview.notice }}</p><button :disabled="busy" @click="applyReference">确认</button><button class="quiet" @click="referencePreview=null">取消</button></div>
     <div v-if="error" class="error" role="alert">{{ error }}</div>
     <form class="composer" @submit.prevent="send" @dragover.prevent @drop.prevent="onDrop">
-      <textarea v-model="draft" rows="3" placeholder="和项目 Agent 讨论创意，或拖入图片…" @keydown.ctrl.enter.prevent="send" />
+      <textarea ref="composerInput" v-model="draft" rows="3" placeholder="和项目 Agent 讨论创意，或拖入图片…" @keydown.ctrl.enter.prevent="send" />
       <div v-if="pendingImages.length" class="pending-images"><span v-for="(file,i) in pendingImages" :key="`${file.name}-${i}`">{{ file.name }} <button type="button" :aria-label="`移除 ${file.name}`" @click="pendingImages.splice(i,1)">×</button></span></div>
       <div class="compose-actions"><label class="attach" for="project-agent-image">＋ 图片<input id="project-agent-image" type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFiles" /></label><small>Ctrl + Enter</small><button :disabled="busy || (!draft.trim() && !pendingImages.length)">发送</button></div>
     </form>
@@ -41,13 +43,15 @@ import { MdPreview } from "md-editor-v3";
 import axios from "@/utils/axios";
 import settingStore from "@/stores/setting";
 import ModelPresets from "@/components/ModelPresets.vue";
+import { useV04ProposalWorkspace } from "@/stores/v04ProposalWorkspace";
 type Attachment = { id: string; name: string; mimeType: string; references?: { targetType: string }[] };
 type Phase = "thinking" | "analyzing" | "answering" | "checking" | "failed" | "uncertain" | "complete";
-type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; relatedUserMessageId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
-type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; knownFailure?: string };
+type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; actionId?: string; relatedUserMessageId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
+type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; optionalDraft?: any; knownFailure?: string };
 type Target = "brief" | "treatment" | "script";
-const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean }>();
-const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void }>();
+const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; scopeLabel?: string; acceptStudioProposal?: (action: any) => Promise<void> }>();
+const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void; (e: "studio-professional"): void }>();
+const proposalWorkspace = useV04ProposalWorkspace();
 const { themeSetting } = storeToRefs(settingStore());
 const markdownTheme = computed<"light" | "dark">(() => themeSetting.value.mode === "auto" ? (document.documentElement.getAttribute("theme-mode") === "dark" ? "dark" : "light") : themeSetting.value.mode);
 const historyMessages = ref<Message[]>([]), localMessages = ref<Message[]>([]);
@@ -56,7 +60,18 @@ const messages = computed(() => [...historyMessages.value.flatMap((m, index): Me
     return [m, { id: `vision-missing:${m.id}`, role: "assistant", content: "", phase: "failed", error: "当前项目尚未配置视觉模型，因此图片已保存，但我还不能分析它。", visionConfigurable: true }];
   return [m];
 }), ...localMessages.value]);
-const draft = ref(""), error = ref(""), busy = ref(false), feed = ref<HTMLElement | null>(null);
+const draft = ref(""), error = ref(""), busy = ref(false), feed = ref<HTMLElement | null>(null), composerInput = ref<HTMLTextAreaElement | null>(null);
+function focusComposer() { composerInput.value?.focus(); }
+defineExpose({ focusComposer });
+function studioActionFor(m: Message) { return proposalWorkspace.current().studioActions[m.actionId || m.id]; }
+async function acceptStudioAction(m: Message) {
+  const entry = studioActionFor(m);
+  if (!entry || entry.handled || !props.acceptStudioProposal || busy.value) return;
+  busy.value = true; error.value = "";
+  try { await props.acceptStudioProposal(entry.action); entry.handled = true; }
+  catch (e: any) { error.value = e?.message || "受控提案预览失败"; }
+  finally { busy.value = false; }
+}
 const pendingImages = ref<File[]>([]), imageUrls = ref<Record<string,string>>({}), referenceChoices = ref<Record<string,string>>({}), referencePreview = ref<any>(null);
 const visionConfigured = ref(true), showVisionSettings = ref(false);
 const submissions = new Map<string, Submission>();
@@ -115,7 +130,10 @@ async function submit(request: Submission) {
     }
     if (own !== generation) return;
     request.chatDispatched = true;
-    const response: any = await axios.post("/v04/agent/chat", { context: request.ctx, message: request.content, attachmentIds: request.attachmentIds });
+    const studioTurn = props.studioMode && request.files.length === 0;
+    const response: any = await axios.post(studioTurn ? "/v04/agent/studio-turn" : "/v04/agent/chat", studioTurn
+      ? { context: request.ctx, message: request.content, ...(request.optionalDraft ? { optionalDraft: request.optionalDraft } : {}) }
+      : { context: request.ctx, message: request.content, attachmentIds: request.attachmentIds });
     if (own !== generation) return;
     const agent = localAgent(request.id);
     if (response.data.status === "VISION_MODEL_REQUIRED" || response.data.status === "VISION_ANALYSIS_FAILED") {
@@ -128,7 +146,11 @@ async function submit(request: Submission) {
       }
       return;
     }
-    if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.error = undefined; }
+    if (studioTurn && response.data.mode === "PROPOSE_CHANGE" && response.data.actionProposal && response.data.assistantMessageId) {
+      proposalWorkspace.putStudioAction(response.data.assistantMessageId, response.data.actionProposal,
+        `${request.ctx.projectId}:${request.ctx.scriptId}`);
+    }
+    if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.actionId = response.data.assistantMessageId; agent.error = undefined; }
     scrollToLatest();
     if (await load(false)) removeLocal(request.id);
     else if (agent) agent.phase = "complete";
@@ -151,7 +173,9 @@ async function submit(request: Submission) {
 async function send() {
   if ((!draft.value.trim() && !pendingImages.value.length) || busy.value) return;
   const id = crypto.randomUUID(), content = draft.value.trim(), files = [...pendingImages.value];
-  const request: Submission = { id, generation, startedAt: Date.now(), content, files, ctx: context(), attachmentIds: [], baselineIds: new Set(historyMessages.value.map(m => m.id)), chatDispatched: false };
+  const visual = props.studioMode && props.selected?.type === "ASSET" ? proposalWorkspace.current().visualSpecProposals[props.selected.key] : null;
+  const request: Submission = { id, generation, startedAt: Date.now(), content, files, ctx: context(), attachmentIds: [], baselineIds: new Set(historyMessages.value.map(m => m.id)), chatDispatched: false,
+    optionalDraft: visual ? { sourceAssetRevision: visual.sourceAssetRevision, spec: visual.spec } : undefined };
   submissions.set(id, request);
   const attachments = files.map((file, i) => {
     const imageId = `local-image:${id}:${i}`;
@@ -235,7 +259,7 @@ async function applyReference() {
   finally { busy.value = false; }
 }
 onMounted(() => { void load(); });
-watch(() => props.projectId, () => { generation++; historyGeneration++; clearImages(); historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; showVisionSettings.value = false; void load(); });
+watch(() => [props.projectId, props.scriptId], () => { generation++; historyGeneration++; clearImages(); historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; showVisionSettings.value = false; void load(); });
 onBeforeUnmount(() => { generation++; clearImages(); });
 </script>
 <style scoped>
@@ -250,4 +274,6 @@ header{display:flex;align-items:center;justify-content:space-between;padding:1.2
 .attachment{margin:.5rem 0;padding:.35rem 0;border-top:1px solid var(--td-component-border)}.attachment img{display:block;max-width:100%;max-height:12rem;object-fit:contain;border-radius:.35rem;margin:.35rem 0}.attachment span,.attachment small{display:block;font-size:.72rem}.attachment .accepted{color:var(--td-success-color)}.reference-actions{display:flex;gap:.3rem;margin-top:.4rem}.reference-actions select{min-width:0;flex:1;background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);border-radius:.3rem;font-size:.72rem}
 .vision-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;margin-top:.5rem}.vision-actions small{width:100%;color:var(--td-text-color-secondary);line-height:1.45}.vision-actions button{background:transparent;color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.72rem;padding:.3rem .5rem}
 .confirm-reference{padding:.7rem 1.2rem;border-top:1px solid var(--td-component-border);font-size:.79rem}.confirm-reference p{color:var(--td-text-color-secondary);line-height:1.45}.confirm-reference button{margin-right:.4rem}.attach{font-size:.78rem;cursor:pointer;color:var(--td-brand-color)}.attach input{display:none}.pending-images{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem}.pending-images span{font-size:.7rem;background:var(--td-bg-color-secondarycontainer);border-radius:.3rem;padding:.25rem}.pending-images button{background:none;border:0;color:var(--td-text-color-primary);cursor:pointer}
+.agent{min-width:0}.composer{flex-shrink:0;min-height:0}.composer textarea{height:86px;min-height:80px;max-height:min(250px,38vh)}.more-actions{padding:.25rem 1.2rem;border-bottom:1px solid var(--td-component-border);color:var(--td-text-color-secondary);font-size:.75rem}.more-actions summary{cursor:pointer;padding:.25rem 0}.more-actions .quick-actions{padding:.5rem 0;border:0}.studio-proposal{margin:.85rem 0 .3rem;padding:.7rem .8rem;border:1px solid var(--td-component-border);border-radius:.5rem;background:var(--td-bg-color-secondarycontainer);font-size:.82rem}.studio-proposal strong{display:block;color:var(--td-text-color-primary)}.studio-proposal p{line-height:1.5;margin:.45rem 0}.studio-proposal small{color:var(--td-text-color-secondary)}.studio-proposal .turn-actions{flex-wrap:wrap}.studio-proposal button{background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.73rem;padding:.35rem .55rem}
+.agent.studio-agent header{padding:.55rem .9rem .35rem}.agent.studio-agent header small{display:none}.agent.studio-agent .context{padding:.25rem .9rem .45rem}.agent.studio-agent .more-actions{padding:.15rem .9rem}.agent.studio-agent .feed{padding:.6rem .9rem}.agent.studio-agent .composer{padding:.6rem .9rem}.agent.studio-agent .composer textarea{height:80px}
 </style>

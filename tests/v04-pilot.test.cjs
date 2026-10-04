@@ -398,7 +398,9 @@ test('image composer uploads bytes, sends attachment IDs and requires reference 
   assert.match(panel, /@drop\.prevent="onDrop"/);
   assert.match(panel, /await asDataUrl\(file\)/);
   assert.match(panel, /post\("\/v04\/agent\/image\/upload"/);
-  assert.match(panel, /post\("\/v04\/agent\/chat", \{ context: request\.ctx, message: request\.content, attachmentIds: request\.attachmentIds \}\)/);
+  assert.match(panel, /studioTurn \? "\/v04\/agent\/studio-turn" : "\/v04\/agent\/chat"/);
+  assert.match(panel, /request\.files\.length === 0/);
+  assert.match(panel, /context: request\.ctx, message: request\.content, attachmentIds: request\.attachmentIds/);
   assert.match(panel, /responseType: "blob"/);
   assert.match(panel, /post\("\/v04\/agent\/reference\/preview"/);
   assert.match(panel, /post\("\/v04\/agent\/reference\/apply"/);
