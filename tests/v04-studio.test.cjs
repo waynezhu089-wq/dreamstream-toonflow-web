@@ -29,6 +29,40 @@ test('OPT-028 draft image view only displays a current scoped job and restores i
   assert.match(studio,/token===generation/,'late fetch cannot install an image after scope change');
 });
 
+test('OPT-028B Studio selects the subject-only profile but reuses the existing image job and card pipeline',()=>{
+  const studio=read('src/views/pilot/StudioWorkspace.vue');
+  const template=parse(studio).descriptor.template.content;
+  assert.match(template,/Z_IMAGE_TURBO_SUBJECT_DRAFT_V1/);
+  assert.match(template,/Z-Image Turbo · 人物主视图实验/);
+  assert.match(template,/仅生成单人人物主视图；不会生成三视图/);
+  assert.match(studio,/\/studio\/executor\/comfy\/test[\s\S]*?profile:executor\.profile/);
+  assert.match(studio,/\/studio\/executor\/comfy\/configure[\s\S]*?profile:executor\.profile/);
+  assert.match(studio,/\/studio\/executor\/comfy\/current/);
+  assert.match(studio,/currentDraftImageJob\(item\.asset,item\.draftPackage,imageJobs\.value\)/);
+  assert.match(studio,/\/studio\/draft-image\/enqueue/);
+  assert.match(studio,/job\.status!=='SUCCEEDED'/);
+  assert.match(studio,/draftImages\.value\[job\.id\]=URL\.createObjectURL\(blob\)/);
+  assert.match(studio,/@prepare-confirmed="prepareConfirmedSelected"/);
+  assert.match(studio,/Number\(spec\.sourceAssetRevision\)===Number\(item\.asset\.revision\)/);
+  assert.match(read('src/views/pilot/StudioAssetDrawer.vue'),/准备已确认视觉规格（不调用模型）/);
+});
+
+test('OPT-028B confirmed CHAR visual spec compiles into the existing draft package without calling the model',async()=>{
+  const {runStudioAssetDraftPipeline}=source('src/views/pilot/studioAssetDraftPipeline.ts');
+  const packages={},asset={canonicalKey:'CHAR-001',name:'男孩',revision:3,status:'ACTIVE',sourcePolicy:'AI_ALLOWED',category:'CHAR',assetKind:'HUMAN_CHARACTER'};
+  const spec={assetKind:'HUMAN_CHARACTER',visualIdentitySummary:'A slim young boy'};
+  let modelCalls=0,compileCalls=0;
+  const result=await runStudioAssetDraftPipeline({projectId:12,scriptId:4,assets:[asset],
+    visualSpecs:[{canonicalKey:'CHAR-001',sourceAssetRevision:3,revision:2,effectiveStatus:'CONFIRMED',spec}],
+    proposals:{},packages,propose:async()=>{modelCalls++;throw new Error('model must not be called');},
+    compile:async items=>{compileCalls++;assert.deepEqual(items,[{canonicalKey:'CHAR-001',sourceAssetRevision:3,spec}]);
+      return {candidates:[{canonicalKey:'CHAR-001',generationIntent:'CHARACTER_TURNAROUND',draftPromptIR:{identity:'boy'},draftRenderedPrompt:{text:'A slim young boy.'},previewPlan:{},completenessIssues:[]}],failures:[]};},
+    isCurrent:()=>true,onVisual:()=>{},onPackage:value=>{packages[value.canonicalKey]=value;},onProgress:()=>{}});
+  assert.equal(result.aborted,false);assert.equal(modelCalls,0);assert.equal(compileCalls,1);
+  assert.equal(packages['CHAR-001'].stage,'WAITING_IMAGE_EXECUTOR');
+  assert.equal(packages['CHAR-001'].visualSource,'CONFIRMED');
+});
+
 test('Studio routes, deep links and component templates are valid',()=>{
   const router=read('src/router/index.ts'),login=read('src/pages/login/index.vue'),professional=read('src/views/pilot/PilotShell.vue');
   assert.match(router,/path: "\/"[\s\S]*?redirect: "\/studio"/);
