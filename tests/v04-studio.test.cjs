@@ -7,7 +7,8 @@ const { parse, compileTemplate } = require('@vue/compiler-sfc');
 const { createPinia, setActivePinia } = require('pinia');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
-function source(file) { const module={exports:{}}; const compiled=ts.transpileModule(read(file),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText; new Function('module','exports','require',compiled)(module,module.exports,require); return module.exports; }
+function source(file) { const absolute=path.resolve(root,file),module={exports:{}}; const compiled=ts.transpileModule(fs.readFileSync(absolute,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  new Function('module','exports','require',compiled)(module,module.exports,name=>name.startsWith('.')?source(path.join(path.dirname(absolute),name+'.ts')):name.startsWith('@/')?source(path.join(root,'src',name.slice(2)+'.ts')):require(name));return module.exports; }
 function storage(){const map=new Map();global.sessionStorage={getItem:key=>map.get(key)||null,setItem:(key,value)=>map.set(key,value),removeItem:key=>map.delete(key)};return map;}
 
 test('Studio routes, deep links and component templates are valid',()=>{
@@ -123,6 +124,27 @@ test('Proposal Workspace isolates project and unit, persists source revision onl
   const serialized=sessionStorage.getItem('v04ProposalWorkspace:v1:10:1');assert.match(serialized,/sourceAssetRevision/);
   assert.doesNotMatch(read('src/stores/v04ProposalWorkspace.ts'),/axios\.post|\/visual-spec\/apply/);
   assert.match(read('src/views/pilot/VisualSpecPanel.vue'),/workspace\.putVisual/);
+});
+
+test('existing session NEEDS_ATTENTION drafts migrate without losing outputs or calling a model',async()=>{
+  const map=storage(),key='v04ProposalWorkspace:v1:10:1';
+  const old={projectId:10,scriptId:1,canonicalKey:'CHAR-001',sourceAssetRevision:3,visualSource:'PROPOSAL',sourceVisualRevision:null,
+    visualSpecDraft:{visualIdentitySummary:'Boy'},diagnostics:{normalizationWarnings:[{path:'primaryPalette',code:'SCALAR_TO_LIST'}],
+      qualityWarnings:[],completenessIssues:[]},generationIntent:'CHARACTER_TURNAROUND',
+    draftPromptIR:{identityBlock:{canonicalKey:'CHAR-001'}},draftRenderedPrompt:{text:'Boy character'},
+    previewPlan:{previewKind:'CHARACTER'},stage:'NEEDS_ATTENTION',error:null};
+  map.set(key,JSON.stringify({studioAssetDraftPackages:{'CHAR-001':old}}));
+  setActivePinia(createPinia());const {useV04ProposalWorkspace}=source('src/stores/v04ProposalWorkspace.ts');
+  const store=useV04ProposalWorkspace();store.setScope(10,1);
+  assert.equal(store.current().studioAssetDraftPackages['CHAR-001'].stage,'WAITING_IMAGE_EXECUTOR');
+  assert.deepEqual(store.current().studioAssetDraftPackages['CHAR-001'].visualSpecDraft,old.visualSpecDraft);
+  assert.deepEqual(store.current().studioAssetDraftPackages['CHAR-001'].draftPromptIR,old.draftPromptIR);
+  assert.deepEqual(store.current().studioAssetDraftPackages['CHAR-001'].diagnostics,old.diagnostics);
+  await require('vue').nextTick();
+  assert.equal(JSON.parse(map.get(key)).studioAssetDraftPackages['CHAR-001'].stage,'WAITING_IMAGE_EXECUTOR');
+  setActivePinia(createPinia());const restored=useV04ProposalWorkspace();restored.setScope(10,1);
+  assert.equal(restored.current().studioAssetDraftPackages['CHAR-001'].stage,'WAITING_IMAGE_EXECUTOR');
+  assert.doesNotMatch(read('src/stores/v04ProposalWorkspace.ts'),/axios|fetch|\/visual-spec\/propose/);
 });
 
 test('one bulk review click sequentially confirms six clean proposals and leaves warnings, stale and failures',async()=>{

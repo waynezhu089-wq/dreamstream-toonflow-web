@@ -20,6 +20,7 @@ function load(file) {
   return module.exports;
 }
 const { runStudioAssetDraftPipeline, freshStudioPackage } = load('src/views/pilot/studioAssetDraftPipeline.ts');
+const { classifyStudioDraftPackage, studioDraftDiagnostics, studioDraftReviewEntries, summarizeStudioDrafts } = load('src/views/pilot/studioDraftDiagnostics.ts');
 const asset = (i, extra = {}) => ({ canonicalKey: `CHAR-${i}`, name: `Asset ${i}`, revision: 1,
   status: 'ACTIVE', sourcePolicy: 'AI_ALLOWED', category: 'CHAR', assetKind: 'HUMAN_CHARACTER', ...extra });
 function harness(assets, extra = {}) {
@@ -89,11 +90,77 @@ test('partial failures and quality issues retain all successful drafts and conti
     { failKeys: ['CHAR-2', 'CHAR-8'], incompleteKeys: ['CHAR-10'] });
   const result = await runStudioAssetDraftPipeline(h.input);
   assert.deepEqual(h.calls.propose.map(batch => batch.length), [6, 6, 1]);
-  assert.deepEqual([result.progress.ready, result.progress.attention, result.progress.failed, result.progress.remaining], [10, 1, 2, 0]);
+  assert.deepEqual([result.progress.ready, result.progress.attention, result.progress.failed, result.progress.remaining], [11, 0, 2, 0]);
   assert.equal(h.packages['CHAR-13'].stage, 'WAITING_IMAGE_EXECUTOR');
-  assert.equal(h.packages['CHAR-10'].stage, 'NEEDS_ATTENTION');
+  assert.equal(h.packages['CHAR-10'].stage, 'WAITING_IMAGE_EXECUTOR');
+  assert.deepEqual(h.packages['CHAR-10'].diagnostics.completenessIssues,['silhouette']);
   assert.equal(h.packages['CHAR-8'].stage, 'FAILED');
   assert.equal(h.packages['CHAR-8'].error.code, 'MODEL_FAILED');
+});
+
+const completed = (extra = {}) => ({ projectId:11, scriptId:2, canonicalKey:'CHAR-1', sourceAssetRevision:1,
+  visualSource:'PROPOSAL', sourceVisualRevision:null, visualSpecDraft:{visualIdentitySummary:'Boy'},
+  diagnostics:{normalizationWarnings:[],qualityWarnings:[],completenessIssues:[]},
+  generationIntent:'CHARACTER_TURNAROUND', draftPromptIR:{identityBlock:{canonicalKey:'CHAR-1'}},
+  draftRenderedPrompt:{text:'Boy character'}, previewPlan:{previewKind:'CHARACTER'},
+  stage:'NEEDS_ATTENTION', error:null, ...extra });
+
+test('historical advisory-only package is reused without another proposal or compiler request', async () => {
+  const old = completed({diagnostics:{normalizationWarnings:[{path:'palette',code:'SCALAR_TO_LIST'}],
+    qualityWarnings:[],completenessIssues:[]}});
+  const h = harness([asset(1)], {packages:{'CHAR-1':old}, proposals:{'CHAR-1':{
+    canonicalKey:'CHAR-1',sourceAssetRevision:1,spec:old.visualSpecDraft}}});
+  const result = await runStudioAssetDraftPipeline(h.input);
+  assert.deepEqual(h.calls.propose,[]);
+  assert.deepEqual(h.calls.compile,[]);
+  assert.deepEqual([result.progress.ready,result.progress.attention,result.progress.failed],[1,0,0]);
+  assert.equal(h.packages['CHAR-1'].stage,'WAITING_IMAGE_EXECUTOR');
+  assert.deepEqual(h.packages['CHAR-1'].draftPromptIR,old.draftPromptIR);
+});
+
+test('diagnostics classify ordinary warnings as INFO/ADVISORY without blocking a valid prompt', () => {
+  const normalization={path:'primaryPalette',code:'SCALAR_TO_LIST'};
+  const quality={path:'footwear',code:'AMBIGUOUS_IDENTITY_VALUE'};
+  for(const diagnostics of [
+    {normalizationWarnings:[normalization],qualityWarnings:[],completenessIssues:[]},
+    {normalizationWarnings:[],qualityWarnings:[quality],completenessIssues:[]},
+    {normalizationWarnings:[],qualityWarnings:[],completenessIssues:['details.foreground']},
+    {normalizationWarnings:[normalization],qualityWarnings:[quality],completenessIssues:['details.foreground']},
+  ]) {
+    const draft=completed({diagnostics});
+    assert.equal(classifyStudioDraftPackage(draft,asset(1)).stage,'WAITING_IMAGE_EXECUTOR');
+    const classified=studioDraftDiagnostics(draft);
+    assert.equal(classified.blocking.length,0);
+    assert.equal(classified.info.length,diagnostics.normalizationWarnings.length);
+    assert.equal(classified.advisory.length,diagnostics.qualityWarnings.length+diagnostics.completenessIssues.length);
+  }
+});
+
+test('missing compiler outputs, true failure, stale source and explicit safety codes remain blocking', () => {
+  assert.equal(classifyStudioDraftPackage(completed({draftPromptIR:null})).stage,'FAILED');
+  assert.equal(classifyStudioDraftPackage(completed({generationIntent:null})).stage,'FAILED');
+  assert.equal(classifyStudioDraftPackage(completed({draftRenderedPrompt:{text:'  '}})).stage,'FAILED');
+  assert.equal(classifyStudioDraftPackage(completed({error:{code:'MODEL_FAILED',message:'模型失败'},stage:'FAILED'})).stage,'FAILED');
+  assert.equal(classifyStudioDraftPackage(completed(),asset(1,{revision:2})).stage,'STALE');
+  const safety=completed({diagnostics:{normalizationWarnings:[],qualityWarnings:[{path:'identity',code:'CANONICAL_IDENTITY_CONFLICT'}],completenessIssues:[]}});
+  assert.equal(classifyStudioDraftPackage(safety).stage,'NEEDS_ATTENTION');
+  assert.equal(classifyStudioDraftPackage(safety).reason,'素材身份与现有设定冲突');
+});
+
+test('ten current packages with seven advisory diagnostics yield ten waiting cards and zero review blockers', () => {
+  const assets=Array.from({length:10},(_,i)=>asset(i+1));
+  const packages=Object.fromEntries(assets.map((item,i)=>[item.canonicalKey,completed({canonicalKey:item.canonicalKey,
+    diagnostics:{normalizationWarnings:i<7?[{path:'primaryPalette',code:'SCALAR_TO_LIST'}]:[],
+      qualityWarnings:[],completenessIssues:[]}})]));
+  assert.deepEqual(summarizeStudioDrafts(assets,packages),{processed:10,waiting:10,attention:0,failed:0});
+  assert.deepEqual(studioDraftReviewEntries(assets,packages,[]),[]);
+  packages['CHAR-4']={...packages['CHAR-4'],error:{code:'COMPILE_FAILED',message:'Prompt 草案编译失败'},stage:'FAILED'};
+  const entries=studioDraftReviewEntries(assets,packages,[]);
+  assert.deepEqual(entries,[{key:'CHAR-4',name:'Asset 4',reason:'Prompt 草案编译失败'}]);
+  const real=asset(11,{category:'BRAND',assetKind:'BRAND_MARK',sourcePolicy:'REAL_REQUIRED'});
+  assert.deepEqual(studioDraftReviewEntries([...assets,real],packages,[]).at(-1),
+    {key:'CHAR-11',name:'Asset 11',reason:'缺少已确认的真实参考'});
+  assert.equal(summarizeStudioDrafts([...assets,real],packages).waiting,9,'real reference never enters AI queue');
 });
 
 test('late batch response cannot write a switched project or unit', async () => {

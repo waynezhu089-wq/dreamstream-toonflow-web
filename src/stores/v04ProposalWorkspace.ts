@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { reactive, ref, watch } from "vue";
 import type { VisualProposalFailure, VisualBatchProgress } from "@/views/pilot/visualProposalBatch";
+import { reclassifyStoredStudioDrafts } from "@/views/pilot/studioDraftDiagnostics";
 
 export type VisualDraft = { canonicalKey: string; sourceAssetRevision: number; spec: any; qualityWarnings?: { path: string; code: string }[]; normalizationWarnings?: { path: string; code: string }[]; [key: string]: any };
 export type StudioAssetDraftPackage = {
@@ -37,6 +38,7 @@ export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () =>
     // A live Pilot tab can retain a pre-Studio draft object during Vite HMR.
     entry.studioActions ||= {};
     entry.studioAssetDraftPackages ||= {};
+    reclassifyStoredStudioDrafts(entry.studioAssetDraftPackages);
     return entry;
   };
   function setScope(projectId: number, scriptId: number) {
@@ -55,10 +57,11 @@ export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () =>
           storyboardDrafts: parsed.storyboardDrafts || [],
           creativeProposal: parsed.creativeProposal || null,
           studioActions: parsed.studioActions || {},
-          studioAssetDraftPackages: parsed.studioAssetDraftPackages || {},
+          studioAssetDraftPackages: reclassifyStoredStudioDrafts(parsed.studioAssetDraftPackages || {}),
         } : empty();
       } catch { entries[key] = empty(); }
     }
+    reclassifyStoredStudioDrafts(entries[key].studioAssetDraftPackages);
     return key;
   }
   function putVisual(proposal: VisualDraft, key = activeKey.value) {

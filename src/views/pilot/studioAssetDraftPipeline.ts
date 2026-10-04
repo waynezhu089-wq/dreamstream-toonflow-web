@@ -1,5 +1,6 @@
 import type { StudioAssetDraftPackage, VisualDraft } from "@/stores/v04ProposalWorkspace";
 import { VISUAL_PROPOSAL_BATCH_SIZE, runVisualProposalBatches, type VisualProposalFailure } from "./visualProposalBatch";
+import { classifyStudioDraftPackage } from "./studioDraftDiagnostics";
 
 type Asset = { canonicalKey: string; name: string; revision: number; status: string; sourcePolicy: string; category: string; assetKind: string };
 type Confirmed = { canonicalKey: string; sourceAssetRevision: number; revision: number; effectiveStatus: string; spec: any };
@@ -21,7 +22,8 @@ type Input = {
 
 const eligible = (asset: Asset) => asset.status === "ACTIVE" && asset.sourcePolicy === "AI_ALLOWED"
   && !["BRAND", "UI"].includes(asset.category) && !["BRAND_MARK", "UI_REFERENCE"].includes(asset.assetKind);
-const usable = (draft: StudioAssetDraftPackage | undefined) => draft?.stage === "WAITING_IMAGE_EXECUTOR" || draft?.stage === "NEEDS_ATTENTION";
+const usable = (draft: StudioAssetDraftPackage | undefined) => !!draft
+  && ["WAITING_IMAGE_EXECUTOR", "NEEDS_ATTENTION"].includes(classifyStudioDraftPackage(draft).stage);
 const sameSpec = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 export function freshStudioPackage(asset: Asset, confirmed: Confirmed | undefined, proposal: VisualDraft | undefined,
@@ -51,6 +53,7 @@ export async function runStudioAssetDraftPipeline(input: Input): Promise<{ abort
   const report = () => { if (input.isCurrent()) input.onProgress({ ...progress }); };
   const publish = (value: StudioAssetDraftPackage) => { if (input.isCurrent()) input.onPackage(value); };
   const finish = (value: StudioAssetDraftPackage) => {
+    value.stage = classifyStudioDraftPackage(value, byKey.get(value.canonicalKey)).stage;
     publish(value); progress.completed++;
     if (value.stage === "WAITING_IMAGE_EXECUTOR") progress.ready++;
     else if (value.stage === "NEEDS_ATTENTION") progress.attention++;
@@ -65,7 +68,9 @@ export async function runStudioAssetDraftPipeline(input: Input): Promise<{ abort
     const proposal = input.proposals[asset.canonicalKey];
     if (freshStudioPackage(asset, spec, proposal, input.packages[asset.canonicalKey])) {
       const old = input.packages[asset.canonicalKey];
-      progress.completed++; if (old.stage === "NEEDS_ATTENTION") progress.attention++; else progress.ready++;
+      const stage = classifyStudioDraftPackage(old, asset).stage;
+      if (old.stage !== stage) publish({ ...old, stage });
+      progress.completed++; if (stage === "NEEDS_ATTENTION") progress.attention++; else progress.ready++;
       progress.remaining = progress.total - progress.completed; continue;
     }
     const value = draftFor(input, asset);
@@ -124,8 +129,7 @@ export async function runStudioAssetDraftPipeline(input: Input): Promise<{ abort
         value.generationIntent = built.generationIntent; value.draftPromptIR = built.draftPromptIR;
         value.draftRenderedPrompt = built.draftRenderedPrompt; value.previewPlan = built.previewPlan;
         value.diagnostics.completenessIssues = built.completenessIssues ?? [];
-        value.stage = value.diagnostics.qualityWarnings.length || value.diagnostics.normalizationWarnings.length
-          || value.diagnostics.completenessIssues.length ? "NEEDS_ATTENTION" : "WAITING_IMAGE_EXECUTOR";
+        value.stage = "WAITING_IMAGE_EXECUTOR";
       } else {
         value.stage = "FAILED"; const failure = byFailure.get(value.canonicalKey);
         value.error = { code: failure?.code || "PILOT_STUDIO_DRAFT_RESULT_MISSING", message: failure?.message || "没有返回草案 Prompt" };

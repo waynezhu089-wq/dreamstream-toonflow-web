@@ -35,7 +35,7 @@
       </main>
       <div class="split-handle main-handle" role="separator" aria-label="调整影片与素材世界宽度" aria-orientation="vertical" :aria-valuenow="Math.round(layout.mainSplitRatio)" tabindex="0" @pointerdown="mainResize.pointerdown" @pointermove="mainResize.pointermove" @pointerup="mainResize.pointerup" @pointercancel="mainResize.pointercancel" @keydown="mainResize.keydown" @dblclick="mainResize.reset" />
       <aside class="asset-world"><div class="world-intro"><p class="eyebrow">Asset World</p><h2>这部片子的视觉世界</h2><p>先看结果，再决定要改什么。真实品牌和界面始终使用已确认参考。</p><button class="primary" :disabled="busy" @click="prepareNext">{{ busy ? '正在准备…' : 'AI 准备下一阶段' }}</button></div>
-        <section class="review-center"><div class="section-heading"><h2>需要你关注</h2><span>{{ reviewCounts.attention }} 项提醒</span></div><div v-if="workspace.current().assetProposal" class="review-boundary"><strong>素材身份候选已准备</strong><p>请审查覆盖和关系后，再人工确认。</p><button @click="goProfessionalTab('assets')">审查素材提案 ↗</button></div><div v-if="workspace.current().storyboardDrafts.length" class="review-boundary"><strong>{{ workspace.current().storyboardDrafts.length }} 镜分镜草案已准备</strong><p>镜头仍未写入正式分镜；需预览影响并人工确认。</p><button @click="goProfessionalTab('storyboard')">审查分镜草案 ↗</button></div><p v-if="!reviewCounts.attention">正常草案留在 Asset World；目前没有需要单独处理的异常。</p><div v-else class="review-items"><button v-for="entry in reviewEntries" :key="entry.key" @click="selectAssetByKey(entry.key)">{{ entry.name }} <span>{{ entry.reason }}</span></button></div><p v-if="bulkStatus">{{ bulkStatus }}</p><p v-for="failure in failures" :key="failure.canonicalKey" class="warning">{{ failure.name }}：{{ failure.message }}</p></section>
+        <section class="review-center"><div class="section-heading"><h2>需要你关注</h2><span>{{ reviewCounts.attention }} 项提醒</span></div><p v-if="draftSummary.processed || bulkStatus">已处理 {{ draftSummary.processed }} 项 · 等待图片 {{ draftSummary.waiting }} · 需要关注 {{ reviewCounts.attention }} · 失败 {{ draftSummary.failed }}</p><div v-if="workspace.current().assetProposal" class="review-boundary"><strong>素材身份候选已准备</strong><p>请审查覆盖和关系后，再人工确认。</p><button @click="goProfessionalTab('assets')">审查素材提案 ↗</button></div><div v-if="workspace.current().storyboardDrafts.length" class="review-boundary"><strong>{{ workspace.current().storyboardDrafts.length }} 镜分镜草案已准备</strong><p>镜头仍未写入正式分镜；需预览影响并人工确认。</p><button @click="goProfessionalTab('storyboard')">审查分镜草案 ↗</button></div><p v-if="!reviewCounts.attention">正常草案留在 Asset World；目前没有需要单独处理的异常。</p><div v-else class="review-items"><button v-for="entry in reviewEntries" :key="entry.key" @click="selectAssetByKey(entry.key)">{{ entry.name }} <span>{{ entry.reason }}</span></button></div><p v-if="bulkStatus">{{ bulkStatus }}</p></section>
         <section v-for="group in groupedAssets" :key="group.name" class="asset-group"><div class="section-heading"><h2>{{ group.name }}</h2><span>{{ group.items.length }}</span></div><div v-if="!group.items.length" class="group-empty">待建立</div><div class="asset-grid"><button v-for="item in group.items" :key="item.asset.canonicalKey" class="asset-card" :class="{active:selected?.type==='ASSET'&&selected.key===item.asset.canonicalKey}" @click="selectAsset(item)"><div class="asset-visual"><img v-if="imageFor(item)" :src="imageFor(item)!" :alt="item.asset.name" /><span v-else>{{ item.placeholder }}</span></div><div class="asset-caption"><small>{{ item.kind }}</small><strong>{{ item.asset.name }}</strong><span>{{ item.status }}</span><em v-if="isRealReference(item.asset)">真实参考 · AI 不重绘</em></div></button></div></section>
       </aside>
     </div>
@@ -56,6 +56,7 @@ import StudioAssetDrawer from './StudioAssetDrawer.vue';
 import { isRealReference, safeStudioImagePath, studioAssets } from './studioPresentation';
 import { pendingVisualProposalKeys } from './visualProposalBatch';
 import { freshStudioPackage, runStudioAssetDraftPipeline } from './studioAssetDraftPipeline';
+import { classifyStudioDraftPackage, studioDraftReviewEntries, summarizeStudioDrafts } from './studioDraftDiagnostics';
 import { applyStudioAssetCreate, previewStudioAssetCreate, type StudioAssetCreateReview } from './studioAssetCreateFlow';
 import { defaultStudioLayout, mainBounds, readStudioLayout, saveStudioLayout, verticalBounds } from './studioLayout';
 import { useResizablePane } from './useResizablePane';
@@ -88,32 +89,21 @@ let generation=0;
 const scope=()=>session.scope();
 const api=async(path:string,body:object)=>((await axios.post(`/v04${path}`,body)) as any).data;
 const proposals=computed(()=>state.value ? workspace.current().visualSpecProposals : {});
-const failures=computed(()=>state.value ? Object.values(workspace.current().visualSpecFailures).filter((failure:any)=>!packages.value[failure.canonicalKey]?.error) : []);
+const failures=computed(()=>state.value ? Object.values(workspace.current().visualSpecFailures).filter((failure:any)=>!packages.value[failure.canonicalKey]) : []);
 const packages=computed(()=>state.value ? workspace.current().studioAssetDraftPackages : {});
+const draftSummary=computed(()=>state.value ? summarizeStudioDrafts(state.value.assets,packages.value) : {processed:0,waiting:0,attention:0,failed:0});
 const assets=computed(()=>studioAssets(state.value,proposals.value,packages.value));
 watch(assets,(items:any[])=>{if(drawer.value)drawer.value=items.find((item:any)=>item.asset.canonicalKey===drawer.value.asset.canonicalKey)??null;});
 const groupedAssets=computed(()=>['主体','场景','视觉系统','品牌'].map(name=>({name,items:assets.value.filter((item:any)=>item.group===name)})));
 const summaryText=computed(()=>{const creative=state.value?.creative;if(!creative)return '';const text=(creative.treatment||creative.brief||'尚无已确认创意。先和 Project Agent 讨论。').replace(/\s+/g,' ').trim();return text.length>220?text.slice(0,220)+'…':text;});
 const selectedLabel=computed(()=>selected.value?.type==='ASSET'?`正在讨论：${state.value?.assets.find((a:any)=>a.canonicalKey===selected.value?.key)?.name||'素材'}`:selected.value?.type==='SHOT'?`正在讨论：镜头 ${String(state.value?.storyboards.findIndex((s:any)=>String(s.id)===selected.value?.key)+1).padStart(2,'0')}`:'正在讨论：整个项目');
-const reviewEntries=computed(()=>{
-  const draftIssues=Object.values(packages.value).flatMap((draft:any)=>{
-  const asset=state.value?.assets.find((a:any)=>a.canonicalKey===draft.canonicalKey);
-  if(!asset||asset.status!=='ACTIVE')return [];
-  const reason=draft.sourceAssetRevision!==asset.revision?'素材身份变化，草案过期':draft.error?.message
-    ||(draft.stage==='NEEDS_ATTENTION'?'视觉草案含有质量或完整性提醒':null);
-  return reason?[{key:draft.canonicalKey,name:asset.name,reason}]:[];
-  });
-  const realMissing=(state.value?.assets||[]).filter((asset:any)=>asset.status==='ACTIVE'&&isRealReference(asset)
-    &&!state.value?.agentReferences.some((ref:any)=>ref.targetKey===asset.canonicalKey&&['ASSET_BIBLE','BIND_SELECTED_ASSET'].includes(ref.targetType)))
-    .map((asset:any)=>({key:asset.canonicalKey,name:asset.name,reason:'缺少已确认的真实参考'}));
-  return [...draftIssues,...realMissing];
-});
-const reviewCounts=computed(()=>({attention:reviewEntries.value.length+failures.value.length}));
+const reviewEntries=computed(()=>state.value ? studioDraftReviewEntries(state.value.assets,packages.value,state.value.agentReferences,failures.value) : []);
+const reviewCounts=computed(()=>({attention:reviewEntries.value.length}));
 function imageFor(item:any){return item.outputPath || item.refs.map((row:any)=>referenceImages.value[row.attachmentId]).find(Boolean) || null;}
 function clearImages(){for(const url of Object.values(referenceImages.value))URL.revokeObjectURL(url);referenceImages.value={};}
 async function loadImages(){clearImages();if(!state.value)return;const token=generation,projectId=state.value.project.id;const refs=state.value.agentReferences.filter((row:any)=>['ASSET_BIBLE','BIND_SELECTED_ASSET'].includes(row.targetType)).slice(0,60);await Promise.all(refs.map(async(ref:any)=>{try{const blob:Blob=await axios.get(`/v04/agent/image/${projectId}/${ref.attachmentId}`,{responseType:'blob'});if(token===generation)referenceImages.value[ref.attachmentId]=URL.createObjectURL(blob);}catch{/* Keep a truthful placeholder. */}}));}
 async function loadProjects(){try{await session.loadProjects();}catch(e:any){error.value=e?.message||'项目读取失败';}}
-async function open(projectId:number,scriptId:number){mainResize.cancel();verticalResize.cancel();const token=++generation;busy.value=true;error.value='';assetCreateReview.value=null;try{const next=await session.open(projectId,scriptId);if(!next||token!==generation)return;workspace.setScope(projectId,scriptId);drawer.value=null;bindRevision(projectId,scriptId);await loadImages();}catch(e:any){if(token===generation)error.value=e?.message||'项目读取失败';}finally{if(token===generation)busy.value=false;}}
+async function open(projectId:number,scriptId:number){mainResize.cancel();verticalResize.cancel();const token=++generation;busy.value=true;error.value='';bulkStatus.value='';assetCreateReview.value=null;try{const next=await session.open(projectId,scriptId);if(!next||token!==generation)return;workspace.setScope(projectId,scriptId);drawer.value=null;bindRevision(projectId,scriptId);await loadImages();}catch(e:any){if(token===generation)error.value=e?.message||'项目读取失败';}finally{if(token===generation)busy.value=false;}}
 async function refresh(){const current=scope();if(current)await open(current.projectId,current.scriptId);}
 async function refreshRevision(){const current=scope();if(!current)return;await session.reload();await loadImages();}
 function bindRevision(projectId:number,scriptId:number){revision.bind({current:()=>({projectId,scriptId,generation}),isCurrent:candidate=>!!candidate&&candidate.projectId===scope()?.projectId&&candidate.scriptId===scope()?.scriptId&&candidate.generation===generation,invalidate:()=>{generation++;},refresh:refreshRevision});revision.setScope({projectId,scriptId,generation});}
@@ -160,15 +150,15 @@ async function prepareDrafts(current:{projectId:number;scriptId:number},token:nu
     propose:keys=>api('/visual-spec/propose',{...current,canonicalKeys:keys}),
     compile:items=>api('/visual-spec/draft-prompts',{...current,items}),isCurrent,
     onVisual:draft=>workspace.putVisual(draft,key),onPackage:draft=>workspace.putStudioDraft(draft,key),
-    onProgress:progress=>{bulkStatus.value=`视觉资产 ${progress.completed}/${progress.total} · 等待图片 ${progress.ready} · 需检查 ${progress.attention} · 失败 ${progress.failed}`;},
+    onProgress:progress=>{bulkStatus.value=`视觉资产 ${progress.completed}/${progress.total} · 等待图片 ${progress.ready} · 需要关注 ${progress.attention} · 失败 ${progress.failed}`;},
   });
-  if(isCurrent()&&!summary.aborted)bulkStatus.value=`已处理 ${summary.progress.total} 项 · 等待图片 ${summary.progress.ready} · 需检查 ${summary.progress.attention} · 失败 ${summary.progress.failed}`;
+  if(isCurrent()&&!summary.aborted)bulkStatus.value='';
 }
 async function prepareNext(){const current=scope();if(!current||busy.value||!state.value)return;const pending=workspace.current();
   const active=state.value.assets.filter((asset:any)=>asset.status==='ACTIVE');
   const eligible=active.filter((asset:any)=>asset.sourcePolicy==='AI_ALLOWED'&&!isRealReference(asset));
   const needsPackages=eligible.some((asset:any)=>!freshStudioPackage(asset,state.value.visualSpecs.find((spec:any)=>spec.canonicalKey===asset.canonicalKey&&spec.effectiveStatus==='CONFIRMED'),pending.visualSpecProposals[asset.canonicalKey],pending.studioAssetDraftPackages[asset.canonicalKey]));
-  const attention=eligible.some((asset:any)=>['FAILED','NEEDS_ATTENTION','STALE'].includes(pending.studioAssetDraftPackages[asset.canonicalKey]?.stage));
+  const attention=eligible.some((asset:any)=>{const draft=pending.studioAssetDraftPackages[asset.canonicalKey];return draft&&['FAILED','NEEDS_ATTENTION','STALE'].includes(classifyStudioDraftPackage(draft,asset).stage);});
   const method=!active.length?'ASSET_EXTRACTION':needsPackages?'STUDIO_DRAFT':attention?null:!state.value.storyboards.length?'STORYBOARD_BATCH':null;
   if(!method){error.value='当前视觉资产草案已准备；图片执行器尚未接入。';return;}
   if(method==='ASSET_EXTRACTION'&&pending.assetProposal){error.value='素材身份候选已准备，请先确认 Asset Bible。';return;}
