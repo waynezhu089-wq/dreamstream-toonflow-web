@@ -20,6 +20,15 @@
         </div>
         <div class="split-handle film-handle" role="separator" aria-label="调整影片与 Project Agent 高度" aria-orientation="horizontal" :aria-valuenow="Math.round(layout.leftVerticalSplitRatio)" tabindex="0" @pointerdown="verticalResize.pointerdown" @pointermove="verticalResize.pointermove" @pointerup="verticalResize.pointerup" @pointercancel="verticalResize.pointercancel" @keydown="verticalResize.keydown" @dblclick="verticalResize.reset" />
         <section class="agent-workspace">
+          <div v-if="assetCreateReview" class="action-card" role="region" aria-label="新增素材预览"><h3>新增独立素材 · 待人工确认</h3>
+            <p>{{ assetCreateReview.action.proposal.asset.name }} · {{ assetCreateReview.action.proposal.asset.category }} / {{ assetCreateReview.action.proposal.asset.assetKind }}</p>
+            <p>{{ assetCreateReview.action.proposal.asset.description }}</p>
+            <p v-if="assetCreateReview.action.proposal.asset.ownerKey">归属：{{ assetCreateReview.action.proposal.asset.ownerKey }}</p>
+            <p v-if="assetCreateReview.preview.suggestions?.[0]?.possibleMatches?.length" class="warning">存在同名素材：{{ assetCreateReview.preview.suggestions[0].possibleMatches.join('、') }}；请确认确实需要独立身份。</p>
+            <p v-if="assetCreateReview.error" class="error">{{ assetCreateReview.error }}</p>
+            <button class="primary" :disabled="busy || assetCreateReview.status!=='PREVIEWED'" @click="confirmAssetCreate">确认新增素材</button>
+            <button :disabled="busy || assetCreateReview.status!=='PREVIEWED'" @click="cancelAssetCreate">取消</button>
+          </div>
           <div v-if="revision.state.draft" class="action-card"><h3>分镜修订预览</h3><p v-if="revision.state.error" class="error">{{ revision.state.error }}</p><p>状态：{{ revision.state.status }}</p><template v-if="revision.state.preview"><p>影响工序：{{ revision.state.preview.stageTransitions?.length || 0 }}；产物影响：{{ revision.state.preview.outputImpact?.length || 0 }}</p><label>本次修改原因<textarea v-model="revision.state.humanReason" rows="2" /></label><button class="primary" :disabled="busy || revision.state.status!=='PREVIEWED' || !revision.state.humanReason.trim()" @click="confirmShot">人工确认并应用</button></template><button @click="revision.discard()">丢弃草案</button></div>
           <div class="agent-panel"><ProjectAgentPanel :key="`${state.project.id}:${state.creative.scriptId}`" ref="agentPanel" :project-id="state.project.id" :script-id="state.creative.scriptId" stage="studio" route-name="studio" :selected="selected" :scope-label="selectedLabel" :studio-mode="true" :creative-mode="true" :accept-studio-proposal="acceptAction" @studio-professional="goProfessional" @creative-candidate="onCreativeCandidate" @production-asset-applied="refresh" /></div>
         </section>
@@ -47,12 +56,15 @@ import StudioAssetDrawer from './StudioAssetDrawer.vue';
 import { isRealReference, safeStudioImagePath, studioAssets } from './studioPresentation';
 import { pendingVisualProposalKeys } from './visualProposalBatch';
 import { freshStudioPackage, runStudioAssetDraftPipeline } from './studioAssetDraftPipeline';
+import { applyStudioAssetCreate, previewStudioAssetCreate, type StudioAssetCreateReview } from './studioAssetCreateFlow';
 import { defaultStudioLayout, mainBounds, readStudioLayout, saveStudioLayout, verticalBounds } from './studioLayout';
 import { useResizablePane } from './useResizablePane';
 
 const router=useRouter(), route=useRoute(), session=useV04ProjectSession(), workspace=useV04ProposalWorkspace(), revision=useStoryboardRevision();
 const {state,projects,selected}=storeToRefs(session);
 const busy=ref(false),error=ref(''),drawer=ref<any>(null),showFullCreative=ref(false),bulkStatus=ref('');
+type AssetCreateReview = StudioAssetCreateReview & { projectId:number; scriptId:number; generation:number; status:'PREVIEWED'|'UNCERTAIN'; error:string };
+const assetCreateReview=ref<AssetCreateReview|null>(null);
 const agentPanel=ref<InstanceType<typeof ProjectAgentPanel> | null>(null);
 const studioGrid=ref<HTMLElement|null>(null), filmWorld=ref<HTMLElement|null>(null);
 const layout=reactive(readStudioLayout());
@@ -101,7 +113,7 @@ function imageFor(item:any){return item.outputPath || item.refs.map((row:any)=>r
 function clearImages(){for(const url of Object.values(referenceImages.value))URL.revokeObjectURL(url);referenceImages.value={};}
 async function loadImages(){clearImages();if(!state.value)return;const token=generation,projectId=state.value.project.id;const refs=state.value.agentReferences.filter((row:any)=>['ASSET_BIBLE','BIND_SELECTED_ASSET'].includes(row.targetType)).slice(0,60);await Promise.all(refs.map(async(ref:any)=>{try{const blob:Blob=await axios.get(`/v04/agent/image/${projectId}/${ref.attachmentId}`,{responseType:'blob'});if(token===generation)referenceImages.value[ref.attachmentId]=URL.createObjectURL(blob);}catch{/* Keep a truthful placeholder. */}}));}
 async function loadProjects(){try{await session.loadProjects();}catch(e:any){error.value=e?.message||'项目读取失败';}}
-async function open(projectId:number,scriptId:number){mainResize.cancel();verticalResize.cancel();const token=++generation;busy.value=true;error.value='';try{const next=await session.open(projectId,scriptId);if(!next||token!==generation)return;workspace.setScope(projectId,scriptId);drawer.value=null;bindRevision(projectId,scriptId);await loadImages();}catch(e:any){if(token===generation)error.value=e?.message||'项目读取失败';}finally{if(token===generation)busy.value=false;}}
+async function open(projectId:number,scriptId:number){mainResize.cancel();verticalResize.cancel();const token=++generation;busy.value=true;error.value='';assetCreateReview.value=null;try{const next=await session.open(projectId,scriptId);if(!next||token!==generation)return;workspace.setScope(projectId,scriptId);drawer.value=null;bindRevision(projectId,scriptId);await loadImages();}catch(e:any){if(token===generation)error.value=e?.message||'项目读取失败';}finally{if(token===generation)busy.value=false;}}
 async function refresh(){const current=scope();if(current)await open(current.projectId,current.scriptId);}
 async function refreshRevision(){const current=scope();if(!current)return;await session.reload();await loadImages();}
 function bindRevision(projectId:number,scriptId:number){revision.bind({current:()=>({projectId,scriptId,generation}),isCurrent:candidate=>!!candidate&&candidate.projectId===scope()?.projectId&&candidate.scriptId===scope()?.scriptId&&candidate.generation===generation,invalidate:()=>{generation++;},refresh:refreshRevision});revision.setScope({projectId,scriptId,generation});}
@@ -115,7 +127,28 @@ function focusAgent(){drawer.value=null;agentPanel.value?.focusComposer();}
 async function regenerateSelected(){const current=scope(),key=selected.value?.key;if(!current||!key||busy.value)return;if(!window.confirm('将调用已配置文本模型重新生成此素材的视觉草案，可能产生费用。继续吗？'))return;const token=generation;busy.value=true;try{const result=await api('/visual-spec/propose',{...current,canonicalKeys:[key]});if(token!==generation)return;for(const candidate of result.candidates||[])workspace.putVisual(candidate);for(const failure of result.failures||[])workspace.current().visualSpecFailures[failure.canonicalKey]=failure;
   if(result.candidates?.length)await prepareDrafts(current,token,[key],true);
 }catch(e:any){if(token===generation)error.value=e?.message||'草案生成失败';}finally{if(token===generation)busy.value=false;}}
-async function acceptAction(action:any){if(action.targetType==='VISUAL_SPEC'){workspace.putVisual(action.proposal);selectAssetByKey(action.targetKey);return;}if(action.targetType==='STORYBOARD_SHOT'){revision.open('STUDIO_AGENT',[action.proposal]);await revision.previewDraft();if(revision.state.status!=='PREVIEWED')throw new Error(revision.state.error||'分镜预览失败');}}
+async function acceptAction(action:any){if(action.targetType==='VISUAL_SPEC'){workspace.putVisual(action.proposal);selectAssetByKey(action.targetKey);return;}if(action.targetType==='STORYBOARD_SHOT'){revision.open('STUDIO_AGENT',[action.proposal]);await revision.previewDraft();if(revision.state.status!=='PREVIEWED')throw new Error(revision.state.error||'分镜预览失败');return;}
+  if(action.targetType==='ASSET_CREATE'){
+    const current=scope(),token=generation;if(!current)throw new Error('请选择项目');
+    const review=await previewStudioAssetCreate(action,current,(path,body)=>api(path,body),()=>token===generation&&session.isCurrent(current.projectId,current.scriptId));
+    assetCreateReview.value={...review,...current,generation:token,status:'PREVIEWED',error:''};
+  }
+}
+function cancelAssetCreate(){const review=assetCreateReview.value;if(!review||review.status!=='PREVIEWED')return;
+  const entry=Object.values(workspace.current().studioActions).find((value:any)=>value.action===review.action);
+  if(entry)entry.handled=false;assetCreateReview.value=null;
+}
+async function confirmAssetCreate(){const review=assetCreateReview.value;if(!review||review.status!=='PREVIEWED'||busy.value)return;
+  const isCurrent=()=>review.generation===generation&&session.isCurrent(review.projectId,review.scriptId);
+  if(!isCurrent()){assetCreateReview.value=null;return;}
+  busy.value=true;review.status='UNCERTAIN';review.error='提交结果待确认，请勿重复点击。';
+  try{const result=await applyStudioAssetCreate(review,(path,body)=>api(path,body),()=>session.reload(),async key=>{
+      selectAssetByKey(key);await prepareDrafts({projectId:review.projectId,scriptId:review.scriptId},review.generation,[key],true);
+    },isCurrent);
+    if(isCurrent()){assetCreateReview.value=null;if(result.prepareError)error.value=`素材 ${result.canonicalKey} 已新增；${result.prepareError}`;}
+  }catch(e:any){if(isCurrent())review.error=`${e?.message||'无法确认新增结果'}。请刷新项目核查；不要直接重试同一新增操作。`;}
+  finally{if(isCurrent())busy.value=false;}
+}
 async function confirmShot(){if(busy.value)return;busy.value=true;try{await revision.confirm();}finally{busy.value=false;}}
 async function prepareDrafts(current:{projectId:number;scriptId:number},token:number,onlyKeys?:string[],force=false){
   if(!state.value)return;

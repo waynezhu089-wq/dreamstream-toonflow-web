@@ -16,7 +16,7 @@
         <div v-if="m.error" class="turn-error" role="alert"><span>{{ m.error }}</span><div class="turn-actions"><button v-if="m.visionConfigurable" type="button" @click="showVisionSettings=true">配置视觉模型</button><button v-if="m.retryable" type="button" :disabled="busy" @click="retryRequest(m.requestId!)">重试</button><button v-if="m.checkable" type="button" :disabled="busy" @click="checkStatus(m.requestId!)">检查状态</button></div></div>
         <p v-if="m.role === 'user'" class="user-content">{{ m.content }}</p>
         <MdPreview v-else-if="m.content && !['thinking','analyzing','checking'].includes(m.phase || '')" class="agent-content" :theme="markdownTheme" :modelValue="m.content" preview-only preview-theme="github" />
-        <div v-if="studioMode && studioActionFor(m)" class="studio-proposal"><strong>建议修改 · {{ studioActionFor(m).action.summary }}</strong><p>{{ studioActionFor(m).action.rationale }}</p><small>提案尚未应用；预览和人工确认后才会改变正式内容。</small><div v-if="!studioActionFor(m).handled" class="turn-actions"><button type="button" :disabled="busy" @click="acceptStudioAction(m)">接受修改并预览</button><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div><small v-else>已送入受控预览</small></div>
+        <div v-if="studioMode && studioActionFor(m)" class="studio-proposal"><strong>{{ studioActionFor(m).action.targetType === 'ASSET_CREATE' ? '新增独立素材提案' : '建议修改' }} · {{ studioActionFor(m).action.summary }}</strong><p>{{ studioActionFor(m).action.rationale }}</p><small>提案尚未应用；预览和人工确认后才会改变正式内容。</small><div v-if="!studioActionFor(m).handled" class="turn-actions"><button type="button" :disabled="busy" @click="acceptStudioAction(m)">{{ studioActionFor(m).action.targetType === 'ASSET_CREATE' ? '预览新增素材' : '接受修改并预览' }}</button><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div><small v-else>已送入受控预览</small></div>
         <div v-for="a in m.attachments || []" :key="a.id" class="attachment">
           <img v-if="imageUrls[a.id]" :src="imageUrls[a.id]" :alt="a.name" />
           <span>{{ a.name }} · 对话参考</span>
@@ -123,7 +123,7 @@ function asDataUrl(file: File): Promise<string> { return new Promise((resolve, r
 async function finishStudioResponse(request: Submission, response: any) {
   if (request.generation !== generation) return;
   const agent = localAgent(request.id);
-  if (response.data.mode === "PROPOSE_CHANGE" && response.data.actionProposal && response.data.assistantMessageId)
+  if (["PROPOSE_CHANGE", "ASSET_CREATE"].includes(response.data.mode) && response.data.actionProposal && response.data.assistantMessageId)
     proposalWorkspace.putStudioAction(response.data.assistantMessageId, response.data.actionProposal,
       `${request.ctx.projectId}:${request.ctx.scriptId}`);
   if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.actionId = response.data.assistantMessageId; agent.error = undefined; agent.retryable = false; agent.checkable = false; }
