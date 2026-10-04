@@ -21,7 +21,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 
 function mount(t, post, props = {}) {
   const module = { exports: {} };
-  const studioActions = {};
+  const studioActions = vue.reactive({});
   const requireMock = id => {
     if (id === '@/utils/axios') return { post, get: async () => new Blob() };
     if (id === '@/stores/setting') return () => ({});
@@ -48,6 +48,87 @@ function mount(t, post, props = {}) {
   };
   return { el, button, send, studioActions, setProps: next => Object.assign(currentProps, next) };
 }
+
+const assetCreateAction = { targetType: 'ASSET_CREATE', summary: '新增月牙挂件', rationale: '男孩需要可识别的配饰',
+  sourceCreativeVersion: 3, proposal: { operation: 'ADD', clientRef: 'crescent-1', asset: {
+    name: '月牙挂件', category: 'ACC', assetKind: 'PROP', ownerKey: 'CHAR-001' } } };
+const assetCreateReview = (actionId = 'asset-proposal-1', changes = {}) => ({ actionId, action: assetCreateAction,
+  projectId: 7, scriptId: 2, generation: 0, body: { projectId: 7, scriptId: 2, sourceCreativeVersion: 3,
+    changes: [assetCreateAction.proposal] }, preview: { previewHash: 'hash', suggestions: [] },
+  status: 'PREVIEWED', canonicalKey: null, error: '', prepareError: null, ...changes });
+
+test('ASSET_CREATE preview and human confirm stay in the originating Agent proposal card', async t => {
+  let panel, previewCalls = 0, confirmCalls = 0;
+  panel = mount(t, async url => {
+    assert.equal(url, '/v04/agent/history');
+    return { data: { messages: [{ id: 'asset-proposal-1', role: 'assistant', content: '给男孩新增月牙挂件。' }] } };
+  }, { studioMode: true, acceptStudioProposal: async (action, actionId) => {
+    assert.equal(action.proposal.clientRef, assetCreateAction.proposal.clientRef); assert.equal(actionId, 'asset-proposal-1'); previewCalls++;
+    panel.setProps({ assetCreateReview: assetCreateReview(actionId) });
+  }, confirmAssetCreate: async actionId => { assert.equal(actionId, 'asset-proposal-1'); confirmCalls++;
+    panel.setProps({ assetCreateReview: assetCreateReview(actionId, { status: 'APPLYING' }) });
+  } });
+  panel.studioActions['asset-proposal-1'] = vue.reactive({ action: assetCreateAction, handled: false });
+  await settle();
+  const card = panel.el.querySelector('.studio-proposal');
+  assert.ok(card); assert.match(card.textContent, /新增独立素材提案/);
+  assert.ok([...card.querySelectorAll('button')].some(button => button.textContent.trim() === '预览新增素材'));
+  assert.equal(panel.button('确认新增素材'), undefined);
+  panel.button('预览新增素材').click(); await settle();
+  assert.equal(previewCalls, 1);
+  assert.match(card.textContent, /新增独立素材 · 待人工确认/);
+  assert.match(card.textContent, /月牙挂件/);
+  assert.ok([...card.querySelectorAll('button')].some(button => button.textContent.trim() === '确认新增素材'));
+  assert.ok([...card.querySelectorAll('button')].some(button => button.textContent.trim() === '取消'));
+  assert.equal(panel.el.querySelectorAll('.studio-proposal').length, 1);
+  panel.button('确认新增素材').click(); await settle();
+  assert.equal(confirmCalls, 1); assert.match(card.textContent, /正在新增素材/);
+  assert.equal(panel.button('确认新增素材'), undefined, 'applying state cannot dispatch a second Apply');
+  panel.setProps({ assetCreateReview: assetCreateReview('asset-proposal-1', { status: 'READY', canonicalKey: 'ACC-001' }) });
+  await settle(); assert.match(card.textContent, /已新增素材.*视觉草案已准备，等待图片生成/);
+});
+
+test('duplicate warning, cancellation and review ownership remain scoped to the matching card', async t => {
+  let panel, cancelled = 0, previewed = 0;
+  panel = mount(t, async url => {
+    assert.equal(url, '/v04/agent/history');
+    return { data: { messages: [
+      { id: 'asset-proposal-1', role: 'assistant', content: '第一个提案' },
+      { id: 'asset-proposal-2', role: 'assistant', content: '第二个提案' },
+    ] } };
+  }, { studioMode: true, acceptStudioProposal: async () => { previewed++; }, cancelAssetCreate: actionId => {
+    assert.equal(actionId, 'asset-proposal-1'); cancelled++; panel.setProps({ assetCreateReview: null });
+  }, assetCreateReview: assetCreateReview('asset-proposal-1', { preview: {
+    previewHash: 'hash', suggestions: [{ possibleMatches: ['ACC-EXISTING'] }] } }) });
+  panel.studioActions['asset-proposal-1'] = vue.reactive({ action: assetCreateAction, handled: true });
+  panel.studioActions['asset-proposal-2'] = vue.reactive({ action: { ...assetCreateAction, summary: '另一个提案' }, handled: false });
+  await settle();
+  const cards = panel.el.querySelectorAll('.studio-proposal');
+  assert.equal(cards.length, 2);
+  assert.match(cards[0].textContent, /可能重复：ACC-EXISTING/);
+  assert.ok(cards[0].textContent.includes('确认新增素材'));
+  assert.doesNotMatch(cards[1].textContent, /可能重复|确认新增素材/);
+  panel.button('取消').click(); await settle();
+  assert.equal(cancelled, 1); assert.equal(previewed, 0, 'cancel is local and cannot Apply or preview again');
+  assert.ok([...cards[0].querySelectorAll('button')].some(button => button.textContent.trim() === '预览新增素材'));
+});
+
+test('asset identity success stays visible when draft preparation fails; retry is preparation-only', async t => {
+  let retried = 0;
+  const panel = mount(t, async url => {
+    assert.equal(url, '/v04/agent/history');
+    return { data: { messages: [{ id: 'asset-proposal-1', role: 'assistant', content: '创建挂件' }] } };
+  }, { studioMode: true, assetCreateReview: assetCreateReview('asset-proposal-1', {
+    status: 'PREPARE_FAILED', canonicalKey: 'ACC-001', prepareError: '文本模型不可用' }),
+    retryAssetDraft: async actionId => { assert.equal(actionId, 'asset-proposal-1'); retried++; } });
+  panel.studioActions['asset-proposal-1'] = vue.reactive({ action: assetCreateAction, handled: true });
+  await settle();
+  const card = panel.el.querySelector('.studio-proposal');
+  assert.match(card.textContent, /素材已新增/);
+  assert.match(card.textContent, /自动准备视觉草案失败：文本模型不可用/);
+  assert.equal(panel.button('确认新增素材'), undefined);
+  panel.button('重试视觉草案').click(); await settle(); assert.equal(retried, 1);
+});
 
 test('Studio DISCUSS completes as an ordinary answer without a proposal card', async t => {
   let reads=0;

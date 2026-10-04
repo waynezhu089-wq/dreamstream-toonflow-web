@@ -3,6 +3,11 @@ export type StudioAssetCreateAction = { targetType: "ASSET_CREATE"; sourceCreati
 export type StudioAssetCreateReview = { action: StudioAssetCreateAction; body: {
   projectId: number; scriptId: number; sourceCreativeVersion: number; changes: StudioAssetCreateAction["proposal"][] };
   preview: { previewHash: string; suggestions?: { possibleMatches?: string[] }[] } };
+export type StudioAssetCreateCardState = StudioAssetCreateReview & {
+  actionId: string; projectId: number; scriptId: number; generation: number;
+  status: "PREVIEWED" | "APPLYING" | "UNCERTAIN" | "PREPARING" | "READY" | "PREPARE_FAILED";
+  canonicalKey: string | null; error: string; prepareError: string | null;
+};
 
 export async function previewStudioAssetCreate(action: StudioAssetCreateAction, scope: { projectId: number; scriptId: number },
   post: (path: string, body: object) => Promise<any>, isCurrent: () => boolean): Promise<StudioAssetCreateReview> {

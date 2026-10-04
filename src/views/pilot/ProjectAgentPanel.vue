@@ -16,7 +16,27 @@
         <div v-if="m.error" class="turn-error" role="alert"><span>{{ m.error }}</span><div class="turn-actions"><button v-if="m.visionConfigurable" type="button" @click="showVisionSettings=true">配置视觉模型</button><button v-if="m.retryable" type="button" :disabled="busy" @click="retryRequest(m.requestId!)">重试</button><button v-if="m.checkable" type="button" :disabled="busy" @click="checkStatus(m.requestId!)">检查状态</button></div></div>
         <p v-if="m.role === 'user'" class="user-content">{{ m.content }}</p>
         <MdPreview v-else-if="m.content && !['thinking','analyzing','checking'].includes(m.phase || '')" class="agent-content" :theme="markdownTheme" :modelValue="m.content" preview-only preview-theme="github" />
-        <div v-if="studioMode && studioActionFor(m)" class="studio-proposal"><strong>{{ studioActionFor(m).action.targetType === 'ASSET_CREATE' ? '新增独立素材提案' : '建议修改' }} · {{ studioActionFor(m).action.summary }}</strong><p>{{ studioActionFor(m).action.rationale }}</p><small>提案尚未应用；预览和人工确认后才会改变正式内容。</small><div v-if="!studioActionFor(m).handled" class="turn-actions"><button type="button" :disabled="busy" @click="acceptStudioAction(m)">{{ studioActionFor(m).action.targetType === 'ASSET_CREATE' ? '预览新增素材' : '接受修改并预览' }}</button><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div><small v-else>已送入受控预览</small></div>
+        <div v-if="studioMode && studioActionFor(m)" class="studio-proposal">
+          <strong>{{ studioActionFor(m).action.targetType === 'ASSET_CREATE' ? '新增独立素材提案' : '建议修改' }} · {{ studioActionFor(m).action.summary }}</strong>
+          <p>{{ studioActionFor(m).action.rationale }}</p>
+          <template v-if="studioActionFor(m).action.targetType === 'ASSET_CREATE'">
+            <p>{{ studioActionFor(m).action.proposal.asset.name }} · {{ studioActionFor(m).action.proposal.asset.category }} / {{ studioActionFor(m).action.proposal.asset.assetKind }}</p>
+            <p v-if="studioActionFor(m).action.proposal.asset.ownerKey">归属：{{ studioActionFor(m).action.proposal.asset.ownerKey }}</p>
+            <template v-if="assetReviewFor(m)">
+              <p v-if="assetReviewFor(m)?.status === 'PREVIEWED'">新增独立素材 · 待人工确认</p>
+              <p v-if="assetReviewFor(m)?.status === 'PREVIEWED' && assetReviewFor(m)?.preview.suggestions?.[0]?.possibleMatches?.length" class="warning">可能重复：{{ assetReviewFor(m)?.preview.suggestions?.[0]?.possibleMatches?.join('、') }}</p>
+              <div v-if="assetReviewFor(m)?.status === 'PREVIEWED'" class="turn-actions"><button type="button" :disabled="busy" @click="props.confirmAssetCreate?.(m.actionId || m.id)">确认新增素材</button><button type="button" :disabled="busy" @click="props.cancelAssetCreate?.(m.actionId || m.id)">取消</button></div>
+              <p v-else-if="assetReviewFor(m)?.status === 'APPLYING'" role="status">正在新增素材…</p>
+              <p v-else-if="assetReviewFor(m)?.status === 'UNCERTAIN'" class="warning" role="alert">{{ assetReviewFor(m)?.error }}</p>
+              <p v-else-if="assetReviewFor(m)?.status === 'PREPARING'" role="status">✓ 素材已新增 · 正在自动准备视觉草案…</p>
+              <p v-else-if="assetReviewFor(m)?.status === 'PREPARE_FAILED'" class="warning" role="alert">✓ 素材已新增 · 自动准备视觉草案失败：{{ assetReviewFor(m)?.prepareError }}</p>
+              <p v-else-if="assetReviewFor(m)?.status === 'READY'" class="success">✓ 已新增素材 · 视觉草案已准备，等待图片生成</p>
+              <div v-if="assetReviewFor(m)?.status === 'PREPARE_FAILED'" class="turn-actions"><button type="button" :disabled="busy" @click="props.retryAssetDraft?.(m.actionId || m.id)">重试视觉草案</button></div>
+            </template>
+            <div v-else class="turn-actions"><button type="button" :disabled="busy" @click="acceptStudioAction(m)">预览新增素材</button><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div>
+          </template>
+          <template v-else><small>提案尚未应用；预览和人工确认后才会改变正式内容。</small><div v-if="!studioActionFor(m).handled" class="turn-actions"><button type="button" :disabled="busy" @click="acceptStudioAction(m)">接受修改并预览</button><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div><small v-else>已送入受控预览</small></template>
+        </div>
         <div v-for="a in m.attachments || []" :key="a.id" class="attachment">
           <img v-if="imageUrls[a.id]" :src="imageUrls[a.id]" :alt="a.name" />
           <span>{{ a.name }} · 对话参考</span>
@@ -44,12 +64,13 @@ import axios from "@/utils/axios";
 import settingStore from "@/stores/setting";
 import ModelPresets from "@/components/ModelPresets.vue";
 import { useV04ProposalWorkspace } from "@/stores/v04ProposalWorkspace";
+import type { StudioAssetCreateCardState } from "./studioAssetCreateFlow";
 type Attachment = { id: string; name: string; mimeType: string; references?: { targetType: string }[] };
 type Phase = "thinking" | "analyzing" | "answering" | "checking" | "failed" | "uncertain" | "complete";
 type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; actionId?: string; relatedUserMessageId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
 type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; optionalDraft?: any; knownFailure?: string; persistedUserMessageId?: string };
 type Target = "brief" | "treatment" | "script";
-const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; scopeLabel?: string; acceptStudioProposal?: (action: any) => Promise<void> }>();
+const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; scopeLabel?: string; acceptStudioProposal?: (action: any, actionId: string) => Promise<void>; assetCreateReview?: StudioAssetCreateCardState | null; confirmAssetCreate?: (actionId: string) => Promise<void>; cancelAssetCreate?: (actionId: string) => void; retryAssetDraft?: (actionId: string) => Promise<void> }>();
 const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void; (e: "studio-professional"): void }>();
 const proposalWorkspace = useV04ProposalWorkspace();
 const { themeSetting } = storeToRefs(settingStore());
@@ -64,11 +85,12 @@ const draft = ref(""), error = ref(""), busy = ref(false), feed = ref<HTMLElemen
 function focusComposer() { composerInput.value?.focus(); }
 defineExpose({ focusComposer });
 function studioActionFor(m: Message) { return proposalWorkspace.current().studioActions[m.actionId || m.id]; }
+function assetReviewFor(m: Message) { return props.assetCreateReview?.actionId === (m.actionId || m.id) ? props.assetCreateReview : null; }
 async function acceptStudioAction(m: Message) {
   const entry = studioActionFor(m);
-  if (!entry || entry.handled || !props.acceptStudioProposal || busy.value) return;
+  if (!entry || (entry.handled && entry.action.targetType !== "ASSET_CREATE") || !props.acceptStudioProposal || busy.value) return;
   busy.value = true; error.value = "";
-  try { await props.acceptStudioProposal(entry.action); entry.handled = true; }
+  try { await props.acceptStudioProposal(entry.action, m.actionId || m.id); entry.handled = true; }
   catch (e: any) { error.value = e?.message || "受控提案预览失败"; }
   finally { busy.value = false; }
 }
@@ -323,4 +345,5 @@ header{display:flex;align-items:center;justify-content:space-between;padding:1.2
 .confirm-reference{padding:.7rem 1.2rem;border-top:1px solid var(--td-component-border);font-size:.79rem}.confirm-reference p{color:var(--td-text-color-secondary);line-height:1.45}.confirm-reference button{margin-right:.4rem}.attach{font-size:.78rem;cursor:pointer;color:var(--td-brand-color)}.attach input{display:none}.pending-images{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem}.pending-images span{font-size:.7rem;background:var(--td-bg-color-secondarycontainer);border-radius:.3rem;padding:.25rem}.pending-images button{background:none;border:0;color:var(--td-text-color-primary);cursor:pointer}
 .agent{min-width:0}.composer{flex-shrink:0;min-height:0}.composer textarea{height:86px;min-height:80px;max-height:min(250px,38vh)}.more-actions{padding:.25rem 1.2rem;border-bottom:1px solid var(--td-component-border);color:var(--td-text-color-secondary);font-size:.75rem}.more-actions summary{cursor:pointer;padding:.25rem 0}.more-actions .quick-actions{padding:.5rem 0;border:0}.studio-proposal{margin:.85rem 0 .3rem;padding:.7rem .8rem;border:1px solid var(--td-component-border);border-radius:.5rem;background:var(--td-bg-color-secondarycontainer);font-size:.82rem}.studio-proposal strong{display:block;color:var(--td-text-color-primary)}.studio-proposal p{line-height:1.5;margin:.45rem 0}.studio-proposal small{color:var(--td-text-color-secondary)}.studio-proposal .turn-actions{flex-wrap:wrap}.studio-proposal button{background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.73rem;padding:.35rem .55rem}
 .agent.studio-agent header{padding:.55rem .9rem .35rem}.agent.studio-agent header small{display:none}.agent.studio-agent .context{padding:.25rem .9rem .45rem}.agent.studio-agent .more-actions{padding:.15rem .9rem}.agent.studio-agent .feed{padding:.6rem .9rem}.agent.studio-agent .composer{padding:.6rem .9rem}.agent.studio-agent .composer textarea{height:80px}
+.studio-proposal .warning{color:var(--td-warning-color)}.studio-proposal .success{color:var(--td-success-color)}
 </style>

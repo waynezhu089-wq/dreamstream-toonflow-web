@@ -91,15 +91,23 @@ test('confirmed new identity immediately receives a Visual Spec draft and compil
   assert.equal(packages['ACC-001'].draftRenderedPrompt.text, 'Crescent pendant');
 });
 
-test('Studio UI wires ASSET_CREATE proposal, human confirm and Phase 1 auto draft without a direct insert route', () => {
+test('Studio places the ASSET_CREATE lifecycle only inside its Agent card and keeps the existing controlled flow', () => {
   const studio=read('src/views/pilot/StudioWorkspace.vue'),panel=read('src/views/pilot/ProjectAgentPanel.vue');
   const template=parse(studio).descriptor.template.content;
   assert.deepEqual(compileTemplate({source:template,filename:'StudioWorkspace.vue',id:'studio'}).errors,[]);
-  assert.match(template,/assetCreateReview/);
-  assert.match(template,/@click="confirmAssetCreate"/);
+  assert.match(template,/:asset-create-review="assetCreateReview"/);
+  assert.match(template,/:confirm-asset-create="confirmAssetCreate"/);
+  assert.match(template,/:cancel-asset-create="cancelAssetCreate"/);
+  assert.match(template,/:retry-asset-draft="retryAssetDraft"/);
+  assert.doesNotMatch(template,/aria-label="新增素材预览"|@click="confirmAssetCreate"/);
+  assert.match(panel,/assetReviewFor\(m\)/);
+  assert.match(panel,/确认新增素材/);
   assert.match(studio,/previewStudioAssetCreate\(action,current/);
   assert.match(studio,/applyStudioAssetCreate\(review/);
   assert.match(studio,/prepareDrafts\(\{projectId:review\.projectId,scriptId:review\.scriptId\},review\.generation,\[key\],true\)/);
+  const retry=studio.slice(studio.indexOf('async function retryAssetDraft'),studio.indexOf('async function confirmShot'));
+  assert.match(retry,/prepareDrafts/);
+  assert.doesNotMatch(retry,/applyStudioAssetCreate|\/assets\/apply/);
   assert.match(panel,/"ASSET_CREATE"\]\.includes\(response\.data\.mode\)/);
   assert.doesNotMatch(studio,/\/assets\/insert|\/assets\/direct-create/);
 });
