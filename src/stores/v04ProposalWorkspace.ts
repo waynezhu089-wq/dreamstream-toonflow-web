@@ -3,6 +3,16 @@ import { reactive, ref, watch } from "vue";
 import type { VisualProposalFailure, VisualBatchProgress } from "@/views/pilot/visualProposalBatch";
 
 export type VisualDraft = { canonicalKey: string; sourceAssetRevision: number; spec: any; qualityWarnings?: { path: string; code: string }[]; normalizationWarnings?: { path: string; code: string }[]; [key: string]: any };
+export type StudioAssetDraftPackage = {
+  projectId: number; scriptId: number; canonicalKey: string; sourceAssetRevision: number;
+  visualSource: "CONFIRMED" | "PROPOSAL" | "NONE"; sourceVisualRevision: number | null;
+  visualSpecDraft: any | null;
+  diagnostics: { normalizationWarnings: any[]; qualityWarnings: any[]; completenessIssues: string[] };
+  generationIntent: string | null; draftPromptIR: any | null; draftRenderedPrompt: any | null;
+  previewPlan: any | null;
+  stage: "PENDING" | "GENERATING_SPEC" | "SPEC_READY" | "PROMPT_READY" | "WAITING_IMAGE_EXECUTOR" | "NEEDS_ATTENTION" | "FAILED" | "STALE";
+  error: { code: string; message: string } | null;
+};
 type ScopedDrafts = {
   visualSpecProposals: Record<string, VisualDraft>;
   visualSpecFailures: Record<string, VisualProposalFailure>;
@@ -12,9 +22,10 @@ type ScopedDrafts = {
   storyboardDrafts: any[];
   creativeProposal: any | null;
   studioActions: Record<string, { action: any; handled: boolean }>;
+  studioAssetDraftPackages: Record<string, StudioAssetDraftPackage>;
 };
 const prefix = "v04ProposalWorkspace:v1:";
-const empty = (): ScopedDrafts => ({ visualSpecProposals: {}, visualSpecFailures: {}, batchSummary: null, batchKeys: [], assetProposal: null, storyboardDrafts: [], creativeProposal: null, studioActions: {} });
+const empty = (): ScopedDrafts => ({ visualSpecProposals: {}, visualSpecFailures: {}, batchSummary: null, batchKeys: [], assetProposal: null, storyboardDrafts: [], creativeProposal: null, studioActions: {}, studioAssetDraftPackages: {} });
 export const proposalScopeKey = (projectId: number, scriptId: number) => `${projectId}:${scriptId}`;
 
 export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () => {
@@ -25,6 +36,7 @@ export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () =>
     const entry = entries[activeKey.value] || (entries[activeKey.value] = empty());
     // A live Pilot tab can retain a pre-Studio draft object during Vite HMR.
     entry.studioActions ||= {};
+    entry.studioAssetDraftPackages ||= {};
     return entry;
   };
   function setScope(projectId: number, scriptId: number) {
@@ -43,6 +55,7 @@ export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () =>
           storyboardDrafts: parsed.storyboardDrafts || [],
           creativeProposal: parsed.creativeProposal || null,
           studioActions: parsed.studioActions || {},
+          studioAssetDraftPackages: parsed.studioAssetDraftPackages || {},
         } : empty();
       } catch { entries[key] = empty(); }
     }
@@ -61,6 +74,11 @@ export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () =>
     entries[key].studioActions ||= {};
     entries[key].studioActions[messageId] = { action, handled: false };
   }
+  function putStudioDraft(value: StudioAssetDraftPackage, key = activeKey.value) {
+    if (!entries[key]) entries[key] = empty();
+    entries[key].studioAssetDraftPackages ||= {};
+    entries[key].studioAssetDraftPackages[value.canonicalKey] = value;
+  }
   function isFresh(canonicalKey: string, revision: number, key = activeKey.value) {
     return Number(entries[key]?.visualSpecProposals[canonicalKey]?.sourceAssetRevision) === Number(revision);
   }
@@ -70,5 +88,5 @@ export const useV04ProposalWorkspace = defineStore("v04ProposalWorkspace", () =>
       sessionStorage.setItem(prefix + key, JSON.stringify(value));
     }
   }, { deep: true });
-  return { activeKey, entries, batchRun, current, setScope, putVisual, removeVisual, putStudioAction, isFresh };
+  return { activeKey, entries, batchRun, current, setScope, putVisual, removeVisual, putStudioAction, putStudioDraft, isFresh };
 });

@@ -10,6 +10,14 @@
     <p v-if="real" class="reference">真实参考 · AI 不重绘</p>
     <p v-if="item.asset.ownerKey || item.asset.variantOf || item.asset.sharedVisualSystemKey" class="muted">关联：{{ [item.asset.ownerKey,item.asset.variantOf,item.asset.sharedVisualSystemKey].filter(Boolean).join(' · ') }}</p>
     <p v-if="item.asset.relatedKeys?.length" class="muted">关联素材：{{ item.asset.relatedKeys.join('、') }}</p>
+    <section v-if="item.draftPackage" class="draft-summary"><strong>Studio 文本草案</strong>
+      <p>{{ item.draftPackage.visualSpecDraft?.visualIdentitySummary || '正在准备视觉描述…' }}</p>
+      <p>生成意图：{{ item.draftPackage.generationIntent || '待确定' }} · Prompt：{{ item.draftPackage.draftPromptIR ? '草案已准备' : '待编译' }}</p>
+      <p>图片执行器：{{ item.draftPackage.stage === 'WAITING_IMAGE_EXECUTOR' ? '等待接入' : '尚未执行' }}</p>
+      <p v-if="item.draftPackage.error" class="warning">{{ item.draftPackage.error.message }}</p>
+      <p v-if="draftIssueCount" class="warning">{{ draftIssueCount }} 项提醒需要单独检查。</p>
+      <small>草案不是已确认 Visual Spec 或正式 Prompt Build。</small>
+    </section>
     <p v-if="item.status==='需要处理'" class="warning">当前视觉草案或已确认版本需要单独审查。</p>
     <div class="actions"><button type="button" @click="$emit('modify')">让 Agent 修改</button><button v-if="!real" type="button" @click="$emit('regenerate')">重新生成视觉草案</button><button type="button" @click="$emit('professional')">进入专业精修</button></div>
   </aside>
@@ -26,8 +34,12 @@ const resize = useResizablePane({value:currentWidth,defaultValue:440,axis:'x',re
   bounds:()=>drawerBounds(window.innerWidth),measure:event=>window.innerWidth-event.clientX-19});
 watch(()=>props.item,()=>resize.cancel());
 const real = computed(() => props.item ? isRealReference(props.item.asset) : false);
+const draftIssueCount = computed(() => props.item ? (props.item.draftPackage?.diagnostics?.normalizationWarnings?.length || 0)
+  + (props.item.draftPackage?.diagnostics?.qualityWarnings?.length || 0)
+  + (props.item.draftPackage?.diagnostics?.completenessIssues?.length || 0) : 0);
 </script>
 <style scoped>
 .drawer{position:fixed;z-index:70;right:1.2rem;top:5rem;bottom:1.2rem;max-width:min(65vw,calc(100vw - 2.4rem));overflow:auto;box-sizing:border-box;padding:1.4rem;background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);box-shadow:0 18px 60px #0007;border-radius:14px}.drawer-handle{position:absolute;left:0;top:0;bottom:0;width:8px;cursor:col-resize;touch-action:none;border-left:2px solid transparent}.drawer-handle:hover,.drawer-handle:focus-visible{border-left-color:var(--td-brand-color);outline:none}
+.draft-summary{margin:1rem 0;padding:1rem;border:1px solid var(--td-component-border);border-radius:9px;background:var(--td-bg-color-secondarycontainer)}.draft-summary p{font-size:.8rem;line-height:1.5}.draft-summary small{color:var(--td-text-color-secondary)}
 header{display:flex;justify-content:space-between;align-items:start;gap:1rem}header h2{margin:.2rem 0}header small,.muted{color:var(--td-text-color-secondary)}button{cursor:pointer;border:1px solid var(--td-component-border);border-radius:7px;background:var(--td-bg-color-secondarycontainer);color:inherit;padding:.5rem .7rem}button:hover{border-color:var(--td-brand-color)}.status,.reference{color:var(--td-brand-color);font-size:.86rem}.visual img{display:block;width:100%;max-height:280px;object-fit:contain;border-radius:9px}.placeholder{min-height:170px;display:grid;place-items:center;border:1px dashed var(--td-component-border);border-radius:10px;color:var(--td-text-color-secondary)}.warning{color:var(--td-warning-color)}.actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.5rem}
 </style>

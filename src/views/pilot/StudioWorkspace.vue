@@ -26,7 +26,7 @@
       </main>
       <div class="split-handle main-handle" role="separator" aria-label="调整影片与素材世界宽度" aria-orientation="vertical" :aria-valuenow="Math.round(layout.mainSplitRatio)" tabindex="0" @pointerdown="mainResize.pointerdown" @pointermove="mainResize.pointermove" @pointerup="mainResize.pointerup" @pointercancel="mainResize.pointercancel" @keydown="mainResize.keydown" @dblclick="mainResize.reset" />
       <aside class="asset-world"><div class="world-intro"><p class="eyebrow">Asset World</p><h2>这部片子的视觉世界</h2><p>先看结果，再决定要改什么。真实品牌和界面始终使用已确认参考。</p><button class="primary" :disabled="busy" @click="prepareNext">{{ busy ? '正在准备…' : 'AI 准备下一阶段' }}</button></div>
-        <section class="review-center"><div class="section-heading"><h2>待你审看</h2><span>{{ reviewCounts.normal }} 项可确认 · {{ reviewCounts.attention }} 项需处理</span></div><div v-if="workspace.current().assetProposal" class="review-boundary"><strong>素材身份候选已准备</strong><p>请审查覆盖和关系后，再人工确认。</p><button @click="goProfessionalTab('assets')">审查素材提案 ↗</button></div><div v-if="workspace.current().storyboardDrafts.length" class="review-boundary"><strong>{{ workspace.current().storyboardDrafts.length }} 镜分镜草案已准备</strong><p>镜头仍未写入正式分镜；需预览影响并人工确认。</p><button @click="goProfessionalTab('storyboard')">审查分镜草案 ↗</button></div><p v-if="!reviewCounts.total">目前没有待确认的视觉草案。</p><template v-else><p>{{ reviewCounts.total }} 项视觉设计草案；带提醒或过期的项目需单独处理。</p><button class="primary" :disabled="busy || !reviewCounts.normal" @click="bulkConfirm">确认所有正常项</button><p v-if="bulkStatus">{{ bulkStatus }}</p><div class="review-items"><button v-for="entry in reviewEntries" :key="entry.key" @click="selectAssetByKey(entry.key)">{{ entry.name }} <span>{{ entry.reason || '可确认' }}</span></button></div></template><p v-for="failure in failures" :key="failure.canonicalKey" class="warning">{{ failure.name }}：{{ failure.message }}</p></section>
+        <section class="review-center"><div class="section-heading"><h2>需要你关注</h2><span>{{ reviewCounts.attention }} 项提醒</span></div><div v-if="workspace.current().assetProposal" class="review-boundary"><strong>素材身份候选已准备</strong><p>请审查覆盖和关系后，再人工确认。</p><button @click="goProfessionalTab('assets')">审查素材提案 ↗</button></div><div v-if="workspace.current().storyboardDrafts.length" class="review-boundary"><strong>{{ workspace.current().storyboardDrafts.length }} 镜分镜草案已准备</strong><p>镜头仍未写入正式分镜；需预览影响并人工确认。</p><button @click="goProfessionalTab('storyboard')">审查分镜草案 ↗</button></div><p v-if="!reviewCounts.attention">正常草案留在 Asset World；目前没有需要单独处理的异常。</p><div v-else class="review-items"><button v-for="entry in reviewEntries" :key="entry.key" @click="selectAssetByKey(entry.key)">{{ entry.name }} <span>{{ entry.reason }}</span></button></div><p v-if="bulkStatus">{{ bulkStatus }}</p><p v-for="failure in failures" :key="failure.canonicalKey" class="warning">{{ failure.name }}：{{ failure.message }}</p></section>
         <section v-for="group in groupedAssets" :key="group.name" class="asset-group"><div class="section-heading"><h2>{{ group.name }}</h2><span>{{ group.items.length }}</span></div><div v-if="!group.items.length" class="group-empty">待建立</div><div class="asset-grid"><button v-for="item in group.items" :key="item.asset.canonicalKey" class="asset-card" :class="{active:selected?.type==='ASSET'&&selected.key===item.asset.canonicalKey}" @click="selectAsset(item)"><div class="asset-visual"><img v-if="imageFor(item)" :src="imageFor(item)!" :alt="item.asset.name" /><span v-else>{{ item.placeholder }}</span></div><div class="asset-caption"><small>{{ item.kind }}</small><strong>{{ item.asset.name }}</strong><span>{{ item.status }}</span><em v-if="isRealReference(item.asset)">真实参考 · AI 不重绘</em></div></button></div></section>
       </aside>
     </div>
@@ -45,8 +45,8 @@ import { useStoryboardRevision } from '@/views/production/revision/coordinator';
 import ProjectAgentPanel from './ProjectAgentPanel.vue';
 import StudioAssetDrawer from './StudioAssetDrawer.vue';
 import { isRealReference, safeStudioImagePath, studioAssets } from './studioPresentation';
-import { confirmNormalVisuals, preliminaryReview } from './studioBulkReview';
-import { pendingVisualProposalKeys, runVisualProposalBatches, mergeVisualProposalResults } from './visualProposalBatch';
+import { pendingVisualProposalKeys } from './visualProposalBatch';
+import { freshStudioPackage, runStudioAssetDraftPipeline } from './studioAssetDraftPipeline';
 import { defaultStudioLayout, mainBounds, readStudioLayout, saveStudioLayout, verticalBounds } from './studioLayout';
 import { useResizablePane } from './useResizablePane';
 
@@ -76,13 +76,27 @@ let generation=0;
 const scope=()=>session.scope();
 const api=async(path:string,body:object)=>((await axios.post(`/v04${path}`,body)) as any).data;
 const proposals=computed(()=>state.value ? workspace.current().visualSpecProposals : {});
-const failures=computed(()=>state.value ? Object.values(workspace.current().visualSpecFailures) : []);
-const assets=computed(()=>studioAssets(state.value,proposals.value));
+const failures=computed(()=>state.value ? Object.values(workspace.current().visualSpecFailures).filter((failure:any)=>!packages.value[failure.canonicalKey]?.error) : []);
+const packages=computed(()=>state.value ? workspace.current().studioAssetDraftPackages : {});
+const assets=computed(()=>studioAssets(state.value,proposals.value,packages.value));
+watch(assets,(items:any[])=>{if(drawer.value)drawer.value=items.find((item:any)=>item.asset.canonicalKey===drawer.value.asset.canonicalKey)??null;});
 const groupedAssets=computed(()=>['主体','场景','视觉系统','品牌'].map(name=>({name,items:assets.value.filter((item:any)=>item.group===name)})));
 const summaryText=computed(()=>{const creative=state.value?.creative;if(!creative)return '';const text=(creative.treatment||creative.brief||'尚无已确认创意。先和 Project Agent 讨论。').replace(/\s+/g,' ').trim();return text.length>220?text.slice(0,220)+'…':text;});
 const selectedLabel=computed(()=>selected.value?.type==='ASSET'?`正在讨论：${state.value?.assets.find((a:any)=>a.canonicalKey===selected.value?.key)?.name||'素材'}`:selected.value?.type==='SHOT'?`正在讨论：镜头 ${String(state.value?.storyboards.findIndex((s:any)=>String(s.id)===selected.value?.key)+1).padStart(2,'0')}`:'正在讨论：整个项目');
-const reviewEntries=computed(()=>Object.values(proposals.value).map((proposal:any)=>{const asset=state.value?.assets.find((a:any)=>a.canonicalKey===proposal.canonicalKey);return {key:proposal.canonicalKey,name:asset?.name||proposal.canonicalKey,reason:preliminaryReview(asset,proposal)};}));
-const reviewCounts=computed(()=>({total:reviewEntries.value.length,normal:reviewEntries.value.filter((x:any)=>!x.reason).length,attention:reviewEntries.value.filter((x:any)=>x.reason).length+failures.value.length}));
+const reviewEntries=computed(()=>{
+  const draftIssues=Object.values(packages.value).flatMap((draft:any)=>{
+  const asset=state.value?.assets.find((a:any)=>a.canonicalKey===draft.canonicalKey);
+  if(!asset||asset.status!=='ACTIVE')return [];
+  const reason=draft.sourceAssetRevision!==asset.revision?'素材身份变化，草案过期':draft.error?.message
+    ||(draft.stage==='NEEDS_ATTENTION'?'视觉草案含有质量或完整性提醒':null);
+  return reason?[{key:draft.canonicalKey,name:asset.name,reason}]:[];
+  });
+  const realMissing=(state.value?.assets||[]).filter((asset:any)=>asset.status==='ACTIVE'&&isRealReference(asset)
+    &&!state.value?.agentReferences.some((ref:any)=>ref.targetKey===asset.canonicalKey&&['ASSET_BIBLE','BIND_SELECTED_ASSET'].includes(ref.targetType)))
+    .map((asset:any)=>({key:asset.canonicalKey,name:asset.name,reason:'缺少已确认的真实参考'}));
+  return [...draftIssues,...realMissing];
+});
+const reviewCounts=computed(()=>({attention:reviewEntries.value.length+failures.value.length}));
 function imageFor(item:any){return item.outputPath || item.refs.map((row:any)=>referenceImages.value[row.attachmentId]).find(Boolean) || null;}
 function clearImages(){for(const url of Object.values(referenceImages.value))URL.revokeObjectURL(url);referenceImages.value={};}
 async function loadImages(){clearImages();if(!state.value)return;const token=generation,projectId=state.value.project.id;const refs=state.value.agentReferences.filter((row:any)=>['ASSET_BIBLE','BIND_SELECTED_ASSET'].includes(row.targetType)).slice(0,60);await Promise.all(refs.map(async(ref:any)=>{try{const blob:Blob=await axios.get(`/v04/agent/image/${projectId}/${ref.attachmentId}`,{responseType:'blob'});if(token===generation)referenceImages.value[ref.attachmentId]=URL.createObjectURL(blob);}catch{/* Keep a truthful placeholder. */}}));}
@@ -98,11 +112,43 @@ function selectShot(shot:any){selected.value={type:'SHOT',key:String(shot.id)};d
 async function goProfessional(){const current=scope();if(!current){error.value='请先打开项目';return;}const query:any={projectId:String(current.projectId),scriptId:String(current.scriptId)};if(selected.value?.type==='ASSET')query.asset=selected.value.key;if(selected.value?.type==='SHOT')query.shot=selected.value.key;try{await router.push({path:'/professional',query});}catch(e:any){error.value=e?.message||'专业模式打开失败';}}
 function goProfessionalTab(tab:string){const current=scope();if(current)void router.push({path:'/professional',query:{projectId:String(current.projectId),scriptId:String(current.scriptId),tab}});}
 function focusAgent(){drawer.value=null;agentPanel.value?.focusComposer();}
-async function regenerateSelected(){const current=scope(),key=selected.value?.key;if(!current||!key||busy.value)return;if(!window.confirm('将调用已配置文本模型重新生成此素材的视觉草案，可能产生费用。继续吗？'))return;const token=generation;busy.value=true;try{const result=await api('/visual-spec/propose',{...current,canonicalKeys:[key]});if(token!==generation)return;for(const candidate of result.candidates||[])workspace.putVisual(candidate);for(const failure of result.failures||[])workspace.current().visualSpecFailures[failure.canonicalKey]=failure;drawer.value=null;}catch(e:any){if(token===generation)error.value=e?.message||'草案生成失败';}finally{if(token===generation)busy.value=false;}}
+async function regenerateSelected(){const current=scope(),key=selected.value?.key;if(!current||!key||busy.value)return;if(!window.confirm('将调用已配置文本模型重新生成此素材的视觉草案，可能产生费用。继续吗？'))return;const token=generation;busy.value=true;try{const result=await api('/visual-spec/propose',{...current,canonicalKeys:[key]});if(token!==generation)return;for(const candidate of result.candidates||[])workspace.putVisual(candidate);for(const failure of result.failures||[])workspace.current().visualSpecFailures[failure.canonicalKey]=failure;
+  if(result.candidates?.length)await prepareDrafts(current,token,[key],true);
+}catch(e:any){if(token===generation)error.value=e?.message||'草案生成失败';}finally{if(token===generation)busy.value=false;}}
 async function acceptAction(action:any){if(action.targetType==='VISUAL_SPEC'){workspace.putVisual(action.proposal);selectAssetByKey(action.targetKey);return;}if(action.targetType==='STORYBOARD_SHOT'){revision.open('STUDIO_AGENT',[action.proposal]);await revision.previewDraft();if(revision.state.status!=='PREVIEWED')throw new Error(revision.state.error||'分镜预览失败');}}
 async function confirmShot(){if(busy.value)return;busy.value=true;try{await revision.confirm();}finally{busy.value=false;}}
-async function bulkConfirm(){const current=scope();if(!current||busy.value)return;const keys=reviewEntries.value.filter(entry=>!entry.reason).map(entry=>entry.key);if(!keys.length)return;if(!window.confirm(`将逐项预览并确认 ${keys.length} 个无警告视觉规格。继续吗？`))return;busy.value=true;const token=generation;const isCurrent=()=>token===generation&&session.isCurrent(current.projectId,current.scriptId);try{const summary=await confirmNormalVisuals({ ...current,keys,proposals:proposals.value,isCurrent,read:()=>api('/project/read',current),preview:body=>api('/visual-spec/preview',body),apply:body=>api('/visual-spec/apply',body),onApplied:key=>workspace.removeVisual(key),onProgress:value=>{bulkStatus.value=`已确认 ${value.applied}，需单独审查 ${value.needsReview}，失败 ${value.failed}`;}});if(isCurrent()){bulkStatus.value=`已确认 ${summary.applied}，需单独审查 ${summary.needsReview}，失败 ${summary.failed}`;await session.reload();}}catch(e:any){if(isCurrent())error.value=e?.message||'批量确认失败';}finally{if(scope()?.projectId===current.projectId&&scope()?.scriptId===current.scriptId)busy.value=false;}}
-async function prepareNext(){const current=scope();if(!current||busy.value)return;const pending=workspace.current();if(pending.assetProposal||pending.storyboardDrafts.length||Object.keys(pending.visualSpecProposals).length){error.value='已有草案等待人工审查。请先处理 Review Center。';return;}const active=state.value.assets.filter((asset:any)=>asset.status==='ACTIVE');const missing=pendingVisualProposalKeys(state.value.assets,state.value.visualSpecs);const method=!active.length?'ASSET_EXTRACTION':missing.length?'VISUAL_SPEC':!state.value.storyboards.length?'STORYBOARD_BATCH':null;if(!method){error.value='当前阶段没有可安全自动准备的下一项；请检查素材、分镜和生产状态。';return;}if(!window.confirm(`将调用已配置文本模型准备${method==='ASSET_EXTRACTION'?'素材身份候选':method==='STORYBOARD_BATCH'?'分镜草案':`${missing.length} 项视觉草案`}，可能产生费用；到下一次人工审查即停止。继续吗？`))return;busy.value=true;const token=generation,isCurrent=()=>token===generation&&session.isCurrent(current.projectId,current.scriptId);try{if(method==='ASSET_EXTRACTION'||method==='STORYBOARD_BATCH'){const result=await api('/skills/preview',{...current,method});if(!isCurrent())return;if(method==='ASSET_EXTRACTION')pending.assetProposal=result;else pending.storyboardDrafts=result.output.shots.map((shot:any)=>({...shot,localId:crypto.randomUUID(),canonicalKeys:shot.canonicalKeys.join(', '),primaryKey:shot.primaryKey||''}));bulkStatus.value='草案已准备，等待人工审查。';}else await runVisualProposalBatches(missing,keys=>api('/visual-spec/propose',{...current,canonicalKeys:keys}),result=>{const merged=mergeVisualProposalResults(pending.visualSpecProposals,pending.visualSpecFailures,result);Object.assign(pending.visualSpecProposals,merged.proposals);Object.assign(pending.visualSpecFailures,merged.failures);},progress=>{workspace.batchRun=progress;bulkStatus.value=`视觉草案 ${progress.completed}/${progress.total}，失败 ${progress.failed}`;},isCurrent,key=>state.value?.assets.find((asset:any)=>asset.canonicalKey===key)?.name||key);}catch(e:any){if(isCurrent())error.value=e?.message||'准备失败';}finally{if(isCurrent())busy.value=false;}}
+async function prepareDrafts(current:{projectId:number;scriptId:number},token:number,onlyKeys?:string[],force=false){
+  if(!state.value)return;
+  const key=`${current.projectId}:${current.scriptId}`,entry=workspace.entries[key];
+  const isCurrent=()=>token===generation&&session.isCurrent(current.projectId,current.scriptId);
+  const selectedAssets=onlyKeys?state.value.assets.filter((asset:any)=>onlyKeys.includes(asset.canonicalKey)):state.value.assets;
+  const summary=await runStudioAssetDraftPipeline({ ...current,assets:selectedAssets,visualSpecs:force?state.value.visualSpecs.filter((spec:any)=>!onlyKeys?.includes(spec.canonicalKey)):state.value.visualSpecs,
+    proposals:entry.visualSpecProposals,packages:force?{}:entry.studioAssetDraftPackages,
+    propose:keys=>api('/visual-spec/propose',{...current,canonicalKeys:keys}),
+    compile:items=>api('/visual-spec/draft-prompts',{...current,items}),isCurrent,
+    onVisual:draft=>workspace.putVisual(draft,key),onPackage:draft=>workspace.putStudioDraft(draft,key),
+    onProgress:progress=>{bulkStatus.value=`视觉资产 ${progress.completed}/${progress.total} · 等待图片 ${progress.ready} · 需检查 ${progress.attention} · 失败 ${progress.failed}`;},
+  });
+  if(isCurrent()&&!summary.aborted)bulkStatus.value=`已处理 ${summary.progress.total} 项 · 等待图片 ${summary.progress.ready} · 需检查 ${summary.progress.attention} · 失败 ${summary.progress.failed}`;
+}
+async function prepareNext(){const current=scope();if(!current||busy.value||!state.value)return;const pending=workspace.current();
+  const active=state.value.assets.filter((asset:any)=>asset.status==='ACTIVE');
+  const eligible=active.filter((asset:any)=>asset.sourcePolicy==='AI_ALLOWED'&&!isRealReference(asset));
+  const needsPackages=eligible.some((asset:any)=>!freshStudioPackage(asset,state.value.visualSpecs.find((spec:any)=>spec.canonicalKey===asset.canonicalKey&&spec.effectiveStatus==='CONFIRMED'),pending.visualSpecProposals[asset.canonicalKey],pending.studioAssetDraftPackages[asset.canonicalKey]));
+  const attention=eligible.some((asset:any)=>['FAILED','NEEDS_ATTENTION','STALE'].includes(pending.studioAssetDraftPackages[asset.canonicalKey]?.stage));
+  const method=!active.length?'ASSET_EXTRACTION':needsPackages?'STUDIO_DRAFT':attention?null:!state.value.storyboards.length?'STORYBOARD_BATCH':null;
+  if(!method){error.value='当前视觉资产草案已准备；图片执行器尚未接入。';return;}
+  if(method==='ASSET_EXTRACTION'&&pending.assetProposal){error.value='素材身份候选已准备，请先确认 Asset Bible。';return;}
+  if(method==='STORYBOARD_BATCH'&&pending.storyboardDrafts.length){error.value='分镜草案已准备，请先审看。';return;}
+  const missing=pendingVisualProposalKeys(state.value.assets,state.value.visualSpecs).filter(key=>!pending.visualSpecProposals[key]||pending.visualSpecProposals[key].sourceAssetRevision!==state.value?.assets.find((asset:any)=>asset.canonicalKey===key)?.revision);
+  if((method!=='STUDIO_DRAFT'||missing.length)&&!window.confirm(`将调用已配置文本模型准备${method==='ASSET_EXTRACTION'?'素材身份候选':method==='STORYBOARD_BATCH'?'分镜草案':`${eligible.length} 项视觉资产草案`}，可能产生费用。继续吗？`))return;
+  busy.value=true;const token=generation,isCurrent=()=>token===generation&&session.isCurrent(current.projectId,current.scriptId);
+  try{if(method==='STUDIO_DRAFT')await prepareDrafts(current,token);
+    else {const result=await api('/skills/preview',{...current,method});if(!isCurrent())return;
+      if(method==='ASSET_EXTRACTION')pending.assetProposal=result;
+      else pending.storyboardDrafts=result.output.shots.map((shot:any)=>({...shot,localId:crypto.randomUUID(),canonicalKeys:shot.canonicalKeys.join(', '),primaryKey:shot.primaryKey||''}));
+      bulkStatus.value='草案已准备，等待人工审查。';}
+  }catch(e:any){if(isCurrent())error.value=e?.message||'准备失败';}finally{if(isCurrent())busy.value=false;}}
 function onCreativeCandidate(value:any){workspace.current().creativeProposal=value;goProfessionalTab('creative');}
 onMounted(async()=>{layoutObserver=new ResizeObserver(()=>{mainResize.clamp();verticalResize.clamp();});if(studioGrid.value)layoutObserver.observe(studioGrid.value);if(filmWorld.value)layoutObserver.observe(filmWorld.value);await loadProjects();const projectId=Number(route.query.projectId),scriptId=Number(route.query.scriptId);if(Number.isSafeInteger(projectId)&&projectId>0&&Number.isSafeInteger(scriptId)&&scriptId>0)await open(projectId,scriptId);else{const restored=await session.restore();if(restored){workspace.setScope(restored.project.id,restored.creative.scriptId);bindRevision(restored.project.id,restored.creative.scriptId);await loadImages();}}if(route.query.asset)selectAssetByKey(String(route.query.asset));if(route.query.shot&&state.value){const shot=state.value.storyboards.find((s:any)=>String(s.id)===String(route.query.shot));if(shot)selectShot(shot);}});
 watch(()=>[route.query.projectId,route.query.scriptId],async()=>{const projectId=Number(route.query.projectId),scriptId=Number(route.query.scriptId);if(Number.isSafeInteger(projectId)&&projectId>0&&Number.isSafeInteger(scriptId)&&scriptId>0&&(scope()?.projectId!==projectId||scope()?.scriptId!==scriptId))await open(projectId,scriptId);});
