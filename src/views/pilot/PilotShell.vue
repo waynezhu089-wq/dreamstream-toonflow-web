@@ -26,7 +26,8 @@
       <main class="content">
         <div class="heading"><div><p class="eyebrow">{{ tabLabel }}</p><h1>{{ heading }}</h1></div></div>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <OperationsConsole v-if="tab === 'operations'" :project-id="state.project.id" :script-id="state.creative.scriptId" />
+        <DirectorInspection v-if="tab==='director'" :project-id="state.project.id" :script-id="state.creative.scriptId" />
+        <OperationsConsole v-else-if="tab === 'operations'" :project-id="state.project.id" :script-id="state.creative.scriptId" />
         <template v-else-if="tab === 'overview'">
           <p class="intro">从左侧选择工作阶段。Project Agent 在每个阶段使用同一项目记忆；创意、决定、素材和生产结果各有明确来源。</p>
           <div class="overview-list"><button @click="tab='creative'">01 · 打磨创意 <span>{{ state.creative.script ? "脚本已确认" : "从 Brief 开始" }} →</span></button><button @click="tab='assets'">02 · 建立素材圣经 <span>{{ state.assets.filter((a:any)=>a.status==='ACTIVE').length }} 项 →</span></button><button @click="tab='storyboard'">03 · 制作分镜 <span>沿用受控生产流程 →</span></button></div>
@@ -94,6 +95,7 @@ import ProjectAgentPanel from "./ProjectAgentPanel.vue";
 import AssetProposalReview from "./AssetProposalReview.vue";
 import VisualSpecPanel from "./VisualSpecPanel.vue";
 import OperationsConsole from './OperationsConsole.vue';
+import DirectorInspection from './DirectorInspection.vue';
 import { handoffToProjectPage, type PilotHandoffTarget } from "./projectHandoff";
 import { appendCandidateForRequirement, linkRequirementToCandidate, assetCoveragePayload, prepareAssetExtractionProposal } from "./skillProposal";
 import { beginPilotAction, settlePilotAction, type PilotActionFeedback } from "./pilotActionFeedback";
@@ -108,7 +110,7 @@ const { state, projects, selected } = storeToRefs(session);
 const categories = ["CHAR","ACC","PROP","PRODUCT","LOC","BRAND","UI","FX"];
 const assetKinds = ["HUMAN_CHARACTER","CREATURE","VEHICLE","PROP","ENVIRONMENT","MATERIAL_FX","CELESTIAL","BRAND_MARK","UI_REFERENCE","OTHER"];
 const assetKindLabel = (kind:string) => ({HUMAN_CHARACTER:"人物",CREATURE:"生物",VEHICLE:"载具",PROP:"道具",ENVIRONMENT:"场景",MATERIAL_FX:"FX / 材质",CELESTIAL:"天体 / 目标",BRAND_MARK:"品牌标识",UI_REFERENCE:"界面参考",OTHER:"其他"} as Record<string,string>)[kind] || kind;
-const tabs = [{key:"overview",label:"概览"},{key:"creative",label:"创意"},{key:"assets",label:"素材圣经"},{key:"storyboard",label:"分镜"},{key:"video",label:"视频"},{key:"edit",label:"剪辑"},{key:'operations',label:'Operations'}];
+const tabs = [{key:"overview",label:"概览"},{key:"creative",label:"创意"},{key:"assets",label:"素材圣经"},{key:"storyboard",label:"分镜"},{key:"video",label:"视频"},{key:"edit",label:"剪辑"},{key:'operations',label:'Operations'},{key:'director',label:'Director 候选'}];
 const tab = ref("creative"), status = ref("已同步"), saving = ref(false), error = ref("");
 const actionFeedback = reactive<PilotActionFeedback>({ key: "", phase: "IDLE", message: "" });
 let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
