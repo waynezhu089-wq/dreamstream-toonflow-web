@@ -86,7 +86,7 @@ type Phase = "thinking" | "analyzing" | "answering" | "checking" | "failed" | "u
 type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; actionId?: string; relatedUserMessageId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
 type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; parentCandidateId?: string; optionalDraft?: any; knownFailure?: string; persistedUserMessageId?: string };
 type Target = "brief" | "treatment" | "script";
-const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; scopeLabel?: string; acceptStudioProposal?: (action: any, actionId: string) => Promise<void>; assetCreateReview?: StudioAssetCreateCardState | null; confirmAssetCreate?: (actionId: string) => Promise<void>; cancelAssetCreate?: (actionId: string) => void; retryAssetDraft?: (actionId: string) => Promise<void> }>();
+const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; reviewCandidateId?: string; scopeLabel?: string; acceptStudioProposal?: (action: any, actionId: string) => Promise<void>; assetCreateReview?: StudioAssetCreateCardState | null; confirmAssetCreate?: (actionId: string) => Promise<void>; cancelAssetCreate?: (actionId: string) => void; retryAssetDraft?: (actionId: string) => Promise<void> }>();
 const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void; (e: "studio-professional"): void }>();
 const proposalWorkspace = useV04ProposalWorkspace();
 const { themeSetting } = storeToRefs(settingStore());
@@ -256,7 +256,7 @@ async function send() {
   const id = crypto.randomUUID(), content = draft.value.trim(), files = [...pendingImages.value];
   if(props.studioMode&&/回到基准|从基准|基于基准/.test(content))editingCandidate.value=null;
   const visual = props.studioMode && props.selected?.type === "ASSET" ? proposalWorkspace.current().visualSpecProposals[props.selected.key] : null;
-  const request: Submission = { id, generation, startedAt: Date.now(), content, files, ctx: context(), attachmentIds: [], baselineIds: new Set(historyMessages.value.map(m => m.id)), chatDispatched: false, ...(editingCandidate.value?{parentCandidateId:editingCandidate.value}:{}),
+  const request: Submission = { id, generation, startedAt: Date.now(), content, files, ctx: context(), attachmentIds: [], baselineIds: new Set(historyMessages.value.map(m => m.id)), chatDispatched: false, ...((editingCandidate.value||(/^(这个可以|用这张|就用这张|确认用这张|用这张作为正式参考|采用此版本|不要这个版本|放弃这个候选|不采用这张)[。！!\s]*$/.test(content)?props.reviewCandidateId:undefined))?{parentCandidateId:editingCandidate.value||props.reviewCandidateId}:{}),
     optionalDraft: visual ? { sourceAssetRevision: visual.sourceAssetRevision, spec: visual.spec } : undefined };
   submissions.set(id, request);
   const attachments = files.map((file, i) => {

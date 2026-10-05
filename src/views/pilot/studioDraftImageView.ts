@@ -21,7 +21,7 @@ export function currentDraftImageJob(asset: { canonicalKey: string; revision: nu
   if (projectId == null || scriptId == null) return null;
   // Persisted jobs arrive in createdAt DESC order; never substitute another purpose.
   return jobs.find(job => identity(job) && job.projectId === projectId && job.scriptId === scriptId &&
-    (job.executionPurpose == null || job.executionPurpose === 'SUBJECT_MAIN_PREVIEW') &&
+    (job.executionPurpose == null || ['SUBJECT_MAIN_PREVIEW','ASSET_MAIN_PREVIEW'].includes(job.executionPurpose)) &&
     ['QUEUED','RUNNING','SUCCEEDED','FAILED'].includes(job.status) &&
     !job.outputs?.some(output => output.role != null && output.role !== 'MAIN_PREVIEW')) ?? null;
 }
@@ -31,11 +31,10 @@ export function draftImageStatus(job: DraftImageJob | null) { return job ? label
 export function currentDraftImageJobForPurpose(asset: { canonicalKey: string; revision: number },
   draftPackage: { imageJobsByPurpose?: Record<string,string>; projectId?: number; scriptId?: number; stage?: string } | null | undefined,
   jobs: DraftImageJob[], executionPurpose: string) {
-  if (!draftPackage || draftPackage.stage !== 'WAITING_IMAGE_EXECUTOR') return null;
   const match = (job: DraftImageJob) => job.canonicalKey === asset.canonicalKey &&
     Number(job.sourceAssetRevision) === Number(asset.revision) && job.executionPurpose === executionPurpose &&
-    (draftPackage.projectId == null || job.projectId === draftPackage.projectId) &&
-    (draftPackage.scriptId == null || job.scriptId === draftPackage.scriptId);
-  const id = draftPackage.imageJobsByPurpose?.[executionPurpose];
+    (draftPackage?.projectId == null || job.projectId === draftPackage.projectId) &&
+    (draftPackage?.scriptId == null || job.scriptId === draftPackage.scriptId);
+  const id = draftPackage?.imageJobsByPurpose?.[executionPurpose];
   return (id ? jobs.find(job => job.id === id && match(job)) : jobs.find(job => match(job) && ['QUEUED','RUNNING','SUCCEEDED','FAILED'].includes(job.status))) ?? null;
 }

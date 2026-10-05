@@ -21,7 +21,7 @@
       <small>草案不是已确认 Visual Spec 或正式 Prompt Build。</small>
     </section>
     <p v-if="item.status==='需要处理'" class="warning">当前视觉草案或已确认版本需要单独审查。</p>
-    <section v-if="!real && item.asset.assetKind==='HUMAN_CHARACTER' && item.draftPackage?.stage==='WAITING_IMAGE_EXECUTOR'" class="draft-summary"><h3>人物参考包 · 草案</h3><small>独立参考职责；不会自动确认或替代四视图。</small><div v-for="purpose in referencePurposes" :key="purpose"><button @click="$emit('select-purpose',purpose)">{{ referenceName(purpose) }} · {{ draftImageStatus(item.referenceJobs?.[purpose]) || '尚未生成' }}</button><button :disabled="['QUEUED','RUNNING'].includes(item.referenceJobs?.[purpose]?.status)" @click="$emit('request-image',referenceName(purpose))">生成此参考</button></div></section>
+    <section v-if="!real && Object.keys(item.referenceJobs||{}).some(key=>item.referenceJobs[key])" class="draft-summary"><h3>更多参考 · 草案</h3><small>来自同一基准，不会自动成为已确认素材。</small><div v-for="(job,purpose) in item.referenceJobs" :key="purpose"><button v-if="job" @click="$emit('select-purpose',String(purpose))">{{ referenceName(String(purpose)) }} · {{ draftImageStatus(job) }}</button></div></section>
     <div class="actions"><button type="button" @click="$emit('modify')">让 Agent 修改</button><button v-if="!real && item.confirmedSpec && item.draftPackage?.stage!=='WAITING_IMAGE_EXECUTOR'" type="button" @click="$emit('prepare-confirmed')">准备已确认视觉规格（不调用模型）</button><button v-if="!real && item.draftPackage?.stage==='WAITING_IMAGE_EXECUTOR'" type="button" @click="$emit('request-image','新的草图')">{{ item.imageJob ? '重新生成草图' : '生成草图' }}</button><button v-if="!real" type="button" @click="$emit('regenerate')">重新生成视觉草案</button><button type="button" @click="$emit('professional')">进入专业精修</button></div>
   </aside>
 </template>
@@ -34,7 +34,7 @@ import { drawerBounds } from './studioLayout';
 import { useResizablePane } from './useResizablePane';
 const props = defineProps<{ item: any | null; imageUrl?: string | null; width: number }>();
 const emit = defineEmits<{(e:'close'):void;(e:'modify'):void;(e:'regenerate'):void;(e:'prepare-confirmed'):void;(e:'request-image',label:string):void;(e:'draft-image',purpose?:string):void;(e:'select-purpose',purpose:string):void;(e:'professional'):void;(e:'width-change',value:number):void}>();
-const referenceName=(purpose:string)=>({FACE_HERO:'人物近景',FULL_BODY_FRONT:'正面全身',FULL_BODY_BACK:'背面全身',SIDE_SPECIAL_LEFT:'左侧参考',SIDE_SPECIAL_RIGHT:'右侧参考',DETAIL_REFERENCE:'细节参考'}[purpose]||'参考图');
+const referenceName=(purpose:string)=>({FACE_HERO:'人物近景',FULL_BODY_FRONT:'正面全身',FULL_BODY_BACK:'背面全身',SIDE_SPECIAL_LEFT:'左侧参考',SIDE_SPECIAL_RIGHT:'右侧参考',DETAIL_REFERENCE:'细节',HERO_3Q:'主视图',SIDE_PROFILE:'侧面',BACK_3Q:'后侧',REAR_3Q:'后侧'}[purpose]||'参考图');
 const referencePurposes=['FACE_HERO','FULL_BODY_FRONT','FULL_BODY_BACK','SIDE_SPECIAL_LEFT','SIDE_SPECIAL_RIGHT','DETAIL_REFERENCE'];
 const currentWidth = computed({get:()=>props.width,set:value=>emit('width-change',value)});
 const resize = useResizablePane({value:currentWidth,defaultValue:440,axis:'x',reverse:true,step:16,

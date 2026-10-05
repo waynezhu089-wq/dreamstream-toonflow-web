@@ -26,3 +26,9 @@ test('browser-session reload mounts persisted MAIN_PREVIEW with no draft and pre
  assert.equal(imageFor({...item,imageJob:null,outputPath:'/review.png',refs:[{attachmentId:'real'}]}),'/review.png');
  assert.equal(imageFor({...item,imageJob:null,refs:[{attachmentId:'real'}]}),'/real.png');
 });
+
+test('OPT-029B automatic main appears on reload without draft package while confirmed baseline remains higher authority',()=>{
+ const scope={projectId:9,scriptId:3},asset={canonicalKey:'PROP-001',revision:1};const jobs=[{id:'auto',...scope,canonicalKey:asset.canonicalKey,sourceAssetRevision:1,status:'SUCCEEDED',executionPurpose:'ASSET_MAIN_PREVIEW',outputs:[{role:'MAIN_PREVIEW'}]}];
+ assert.equal(currentDraftImageJob(asset,null,jobs,scope).id,'auto');assert.equal(currentDraftImageJob(asset,null,jobs,{...scope,scriptId:4}),null);
+ const images={value:{auto:'/auto-main.png'}},refs={value:{baseline:'/baseline.png'}};const imageFor=new Function('draftImages','referenceImages',transpile(imageCode)+';return imageFor;')(images,refs);const item={asset,imageJob:jobs[0],refs:[],imageBaselines:[],outputPath:null};assert.equal(imageFor(item),'/auto-main.png');assert.equal(imageFor({...item,baseline:{attachmentId:'baseline'}}),'/baseline.png');
+});

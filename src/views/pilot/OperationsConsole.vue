@@ -7,7 +7,7 @@
       <div v-if="tab==='Status'">
         <h3>System status</h3><dl><dt>Frontend</dt><dd>ONLINE · {{ frontendCommit || 'UNKNOWN build commit' }}</dd><dt>Backend</dt><dd>{{ status.backend.status }} · {{ status.backend.commit || 'UNKNOWN' }}</dd><dt>数据环境</dt><dd>{{ status.backend.dataDirectory }}</dd><dt>Stable</dt><dd>PROTECTED</dd><dt>Comfy</dt><dd>{{ status.comfy.status }} · {{ status.comfy.baseUrl }} · version {{ status.comfy.version || 'UNKNOWN' }}</dd></dl>
         <h4>实际设备 / queue（不是 peak VRAM）</h4><pre>{{ pretty({devices:status.comfy.devices,queue:status.comfy.queue}) }}</pre>
-        <h4>Legacy Draft Executor Config</h4><pre>{{ pretty(status.legacyConfig) }}</pre><p>这是旧草图配置，与 Agent Image Edit Routing 分开。</p>
+        <h4>Automatic Asset Coverage</h4><pre>{{ pretty(coverage) }}</pre><h4>Legacy Draft Executor Config</h4><pre>{{ pretty(status.legacyConfig) }}</pre><p>这是旧草图配置，与 Agent Image Edit Routing 分开。</p>
       </div>
       <div v-if="tab==='Routing'">
         <h3>Active image routing · THIS PROJECT</h3>
@@ -43,13 +43,14 @@ const rows=ref<any[]>([]),filter=ref('All'),assetFilter=ref(''),detail=ref<any>(
 let generation=0,historyGeneration=0,detailGeneration=0;const urls:string[]=[];
 const pretty=(v:any)=>JSON.stringify(v,null,2),time=(v:any)=>v?new Date(Number(v)).toLocaleString():'—';
 const duration=(v:any)=>v.submittedAt&&v.completedAt?`${((v.completedAt-v.submittedAt)/1000).toFixed(1)} s`:'—';
+const coverage=ref<any>(null);
 const registryItem=(id:string)=>status.value?.registry.find((p:any)=>p.profile===id);
 const compatible=(task:string)=>status.value?.registry.filter((p:any)=>p.capabilities.includes(task))??[];
 const displayedGraph=computed(()=>{if(!search.value)return graph.value;const parsed=JSON.parse(graph.value||'{}');return pretty(Object.fromEntries(Object.entries(parsed).filter(([key,node])=>`${key} ${JSON.stringify(node)}`.toLowerCase().includes(search.value.toLowerCase()))));});
 const detailSummary=computed(()=>{if(!detail.value)return null;const {workflowGraphJson,...rest}=detail.value;return {...rest,parameters:JSON.parse(rest.parametersJson),models:JSON.parse(rest.modelsJson),sources:JSON.parse(rest.sourcesJson),references:JSON.parse(rest.referencesJson)};});
 function revoke(){urls.splice(0).forEach(url=>URL.revokeObjectURL(url));outputImages.value=[];}
 async function request(path:string,body:any){return (await axios.post('/v04/operations/'+path,body)).data;}
-async function load(){const token=generation,projectId=props.projectId;busy.value=true;error.value='';try{const result=await request('status',{projectId});if(token!==generation)return;status.value=result;routes.value={...result.routing.routes};disabled.value=[...result.routing.disabledProfiles];await loadHistory();}catch(e:any){if(token===generation)error.value=e.response?.data?.message||'后台状态读取失败';}finally{if(token===generation)busy.value=false;}}
+async function load(){const token=generation,projectId=props.projectId;busy.value=true;error.value='';try{const result=await request('status',{projectId});if(token!==generation)return;status.value=result;routes.value={...result.routing.routes};disabled.value=[...result.routing.disabledProfiles];await loadHistory();try{const value:any=await axios.post('/v04/studio/auto-assets/coverage',{projectId,scriptId:props.scriptId});if(token===generation)coverage.value=value.data;}catch{if(token===generation)coverage.value={status:'UNKNOWN'};}}catch(e:any){if(token===generation)error.value=e.response?.data?.message||'后台状态读取失败';}finally{if(token===generation)busy.value=false;}}
 async function loadHistory(){const token=generation,historyToken=++historyGeneration;try{const result=await request('executions',{projectId:props.projectId,filter:filter.value,...(filter.value==='Asset'&&assetFilter.value?{canonicalKey:assetFilter.value}:{})});if(token===generation&&historyToken===historyGeneration)rows.value=result;}catch{if(token===generation&&historyToken===historyGeneration)error.value='执行历史读取失败';}}
 async function preview(reset:boolean){const token=generation;busy.value=true;try{const result=await request('routing/preview',{projectId:props.projectId,requestId:crypto.randomUUID(),reset,routes:reset?{}:routes.value,disabledProfiles:reset?[]:disabled.value});if(token===generation){plan.value=result;confirmed.value=false;}}catch(e:any){if(token===generation)error.value=e.response?.data?.message||'路由预览失败';}finally{if(token===generation)busy.value=false;}}
 async function apply(){if(!plan.value||!confirmed.value||busy.value)return;const token=generation;busy.value=true;try{await request('routing/apply',{...plan.value.request,previewHash:plan.value.previewHash,confirmed:true});if(token!==generation)return;plan.value=null;await load();}catch(e:any){if(token===generation)error.value=e.response?.data?.message||'应用结果未确认；保留原请求，核对后可重试';}finally{if(token===generation)busy.value=false;}}
