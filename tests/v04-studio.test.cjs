@@ -53,9 +53,9 @@ test('OPT-028 draft image view only displays a current scoped job and restores i
 test('OPT-028B Studio selects the subject-only profile but reuses the existing image job and card pipeline',()=>{
   const studio=read('src/views/pilot/StudioWorkspace.vue');
   const template=parse(studio).descriptor.template.content;
-  assert.match(template,/Z_IMAGE_TURBO_SUBJECT_DRAFT_V1/);
-  assert.match(template,/Z-Image Turbo · 人物主视图实验/);
-  assert.match(template,/仅生成单人人物主视图；不会生成三视图/);
+  assert.doesNotMatch(template,/executor-setup|executor\.profile/);
+  assert.match(template,/专业配置/);
+  assert.match(template,/goProfessional/);
   assert.match(studio,/\/studio\/executor\/comfy\/test[\s\S]*?profile:executor\.profile/);
   assert.match(studio,/\/studio\/executor\/comfy\/configure[\s\S]*?profile:executor\.profile/);
   assert.match(studio,/\/studio\/executor\/comfy\/current/);
@@ -117,7 +117,7 @@ test('Studio has one Agent composer, a scoped proposal card and no duplicate act
   assert.match(panel,/proposalWorkspace\.putStudioAction\(response\.data\.assistantMessageId/);
   assert.match(panel,/studioActionFor\(m\)/);
   assert.match(panel,/acceptStudioProposal/);
-  assert.match(panel,/request\.files\.length === 0/,'image messages retain the attachment/vision route');
+  assert.match(panel,/const studioTurn = props.studioMode;/,'Studio image attachments use the same Agent turn');assert.match(panel,/attachmentIds: request.attachmentIds/);
   assert.match(panel,/own !== generation/,'late results cannot enter a switched project');
 });
 
@@ -278,4 +278,19 @@ test('subject thumbnails use intrinsic contain sizing and environments use separ
  for(const assetKind of ['HUMAN_CHARACTER','CREATURE','PROP','VEHICLE'])assert.equal(classFor(assetPreviewFit,{asset:{assetKind}}),'asset-preview-contain');
  assert.equal(classFor(assetPreviewFit,{asset:{assetKind:'ENVIRONMENT'}}),'asset-preview-cover');
  assert.doesNotMatch(image,/:style=/);
+});
+
+test('OPT-029A Studio composer routes attachments through Studio Turn and candidates remain explicit review',()=>{
+ const agent=read('src/views/pilot/ProjectAgentPanel.vue');const {descriptor}=parse(agent);assert.equal(compileTemplate({source:descriptor.template.content,filename:'ProjectAgentPanel.vue',id:'opt029a'}).errors.length,0);
+ assert.match(agent,/const studioTurn = props\.studioMode;/);assert.match(agent,/axios\.post\(studioTurn \? "\/v04\/agent\/studio-turn" : "\/v04\/agent\/chat", studioTurn/);assert.match(agent,/attachmentIds:\s*request\.attachmentIds/);assert.match(agent,/parentCandidateId:\s*request\.parentCandidateId/);assert.match(agent,/image-edit\/candidates/);assert.match(agent,/image-edit\/preview/);assert.match(agent,/image-edit\/accept/);assert.match(agent,/candidatePreview\.previewHash|previewHash:p\.previewHash/);assert.match(agent,/采用此版本/);assert.match(agent,/继续修改/);assert.match(agent,/放弃/);assert.match(agent,/editingCandidate\.value=c\.id/);
+ const studio=read('src/views/pilot/StudioWorkspace.vue');assert.doesNotMatch(studio,/<details class="executor-setup">/);assert.match(studio,/c\.decision==='ACCEPTED'&&c\.status==='SUCCEEDED'/);
+});
+function componentFunction(file,name,bindings){const script=parse(read(file)).descriptor.scriptSetup.content;const ast=ts.createSourceFile('component.ts',script,ts.ScriptTarget.Latest,true);const node=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name);assert.ok(node,name);const code=ts.transpileModule(node.getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;return new Function('bindings','with(bindings){'+code+';return '+name+';}')(bindings);}
+test('OPT-029A candidate polling drops late results after scope switch',async()=>{
+ let release;const bindings={generation:2,imageCandidates:{value:[]},candidateUrls:{value:{}},props:{studioMode:true,projectId:9,scriptId:3},axios:{post:()=>new Promise(r=>release=r)},URL};const fn=componentFunction('src/views/pilot/ProjectAgentPanel.vue','loadImageCandidates',bindings);
+ const current=fn();release({data:[{id:'current',outputs:[]}]});await current;assert.equal(bindings.imageCandidates.value[0].id,'current');
+ const late=fn();bindings.generation++;bindings.props.projectId=10;bindings.imageCandidates.value=[];release({data:[{id:'old-project',outputs:[]}]});await late;assert.deepEqual(bindings.imageCandidates.value,[]);assert.deepEqual(bindings.candidateUrls.value,{});
+});
+test('OPT-029A accepted candidate display outranks old MAIN_PREVIEW, pending candidates do not alter current card',()=>{
+ const imageFor=componentFunction('src/views/pilot/StudioWorkspace.vue','imageFor',{draftImages:{value:{old:'old-url',accepted:'new-url'}},referenceImages:{value:{}}});const item={imageJob:{id:'old',status:'SUCCEEDED'},refs:[]};assert.equal(imageFor(item),'old-url');assert.equal(imageFor({...item,acceptedImageJob:{id:'accepted'}}),'new-url');assert.equal(imageFor({...item,selectedPurpose:'FACE_HERO',referenceJobs:{FACE_HERO:{id:'old',status:'SUCCEEDED'}}}),'old-url');
 });

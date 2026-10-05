@@ -46,6 +46,20 @@
         <div v-if="m.role === 'user' && m.attachments?.length && !m.id.startsWith('local-user:')" class="vision-actions"><small v-if="!visionConfigured">图片已保存为对话参考；视觉模型未配置，暂时无法分析。</small><button v-if="!visionConfigured" type="button" @click="showVisionSettings=true">配置视觉模型</button><button type="button" :disabled="busy || !visionConfigured" @click="reanalyze(m.id)">重新分析这条消息</button></div>
       </div>
     </div>
+    <section v-if="studioMode && imageCandidates.length" class="image-candidates" aria-label="图片候选">
+      <article v-for="candidate in imageCandidates" :key="candidate.id" class="image-candidate">
+        <strong>{{ candidate.canonicalKey }} · 图片候选</strong>
+        <p v-if="['QUEUED','RUNNING'].includes(candidate.status)" role="status">正在准备新的候选图片…现有资产未替换。</p>
+        <img v-if="candidateUrls[candidate.id]" :src="candidateUrls[candidate.id]" :alt="candidate.canonicalKey+' 图片候选'" />
+        <p v-if="candidate.status==='FAILED'" class="error">{{ candidate.errorMessage }}</p>
+        <p v-if="candidate.status==='STALE'" class="warning">素材已变化，这张候选仅保留作历史参考。</p>
+        <small v-if="candidate.decision==='ACCEPTED'" class="accepted">已确认为素材参考</small>
+        <small v-else-if="candidate.decision==='REJECTED'">已放弃</small>
+        <div v-if="candidate.status==='SUCCEEDED' && candidate.decision!=='REJECTED'" class="turn-actions"><button v-if="candidate.decision!=='ACCEPTED'" :disabled="busy" @click="previewImageCandidate(candidate)">采用此版本</button><button :disabled="busy" @click="continueImageCandidate(candidate)">继续修改</button><button v-if="candidate.decision!=='ACCEPTED'" :disabled="busy" @click="rejectImageCandidate(candidate)">放弃</button></div>
+      </article>
+      <p v-if="editingCandidate" class="context">继续修改上一张候选；输入你的调整要求即可。<button @click="editingCandidate=null">返回当前素材</button></p>
+      <div v-if="candidatePreview" class="confirm-reference"><strong>确认采用候选</strong><p>{{ candidatePreview.notice }}</p><button :disabled="busy" @click="acceptImageCandidate">确认采用</button><button @click="candidatePreview=null">取消</button></div>
+    </section>
     <div v-if="referencePreview" class="confirm-reference"><strong>确认图片用途</strong><p>{{ referencePreview.notice }}</p><button :disabled="busy" @click="applyReference">确认</button><button class="quiet" @click="referencePreview=null">取消</button></div>
     <div v-if="error" class="error" role="alert">{{ error }}</div>
     <form class="composer" @submit.prevent="send" @dragover.prevent @drop.prevent="onDrop">
@@ -68,7 +82,7 @@ import type { StudioAssetCreateCardState } from "./studioAssetCreateFlow";
 type Attachment = { id: string; name: string; mimeType: string; references?: { targetType: string }[] };
 type Phase = "thinking" | "analyzing" | "answering" | "checking" | "failed" | "uncertain" | "complete";
 type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; actionId?: string; relatedUserMessageId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
-type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; optionalDraft?: any; knownFailure?: string; persistedUserMessageId?: string };
+type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; parentCandidateId?: string; optionalDraft?: any; knownFailure?: string; persistedUserMessageId?: string };
 type Target = "brief" | "treatment" | "script";
 const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; scopeLabel?: string; acceptStudioProposal?: (action: any, actionId: string) => Promise<void>; assetCreateReview?: StudioAssetCreateCardState | null; confirmAssetCreate?: (actionId: string) => Promise<void>; cancelAssetCreate?: (actionId: string) => void; retryAssetDraft?: (actionId: string) => Promise<void> }>();
 const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void; (e: "studio-professional"): void }>();
@@ -142,9 +156,21 @@ function addFiles(files: FileList | File[]) {
 function onFiles(event: Event) { const input = event.target as HTMLInputElement; if (input.files) addFiles(input.files); input.value = ""; }
 function onDrop(event: DragEvent) { if (event.dataTransfer?.files) addFiles(event.dataTransfer.files); }
 function asDataUrl(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); }); }
+watch(()=>props.selected?.key,()=>{editingCandidate.value=null;});
+const imageCandidates=ref<any[]>([]),candidateUrls=ref<Record<string,string>>({}),editingCandidate=ref<string|null>(null),candidatePreview=ref<any>(null);
+let candidatePoll:ReturnType<typeof setInterval>|undefined;
+function clearCandidateImages(){for(const url of Object.values(candidateUrls.value))URL.revokeObjectURL(url);candidateUrls.value={};}
+async function loadImageCandidates(){if(!props.studioMode||!props.scriptId)return;const own=generation;try{const result:any=await axios.post('/v04/studio/image-edit/candidates',{projectId:props.projectId,scriptId:props.scriptId});if(own!==generation)return;imageCandidates.value=result.data;for(const c of result.data){if(candidateUrls.value[c.id]||!c.outputs?.[0])continue;const blob:Blob=await axios.get('/v04/studio/artifact/'+props.projectId+'/'+c.outputs[0].artifactId,{responseType:'blob'});if(own===generation)candidateUrls.value[c.id]=URL.createObjectURL(blob);}}catch{/* Reconnect preserves candidate history. */}}
+function continueImageCandidate(c:any){editingCandidate.value=c.id;draft.value='继续修改 '+c.canonicalKey+'：';focusComposer();}
+async function previewImageCandidate(c:any){const own=generation;busy.value=true;try{const r:any=await axios.post('/v04/studio/image-edit/preview',{projectId:props.projectId,scriptId:props.scriptId,jobId:c.id});if(own===generation)candidatePreview.value={...r.data,jobId:c.id};}catch(e:any){if(own===generation)error.value=e?.message||'候选预览失败';}finally{if(own===generation)busy.value=false;}}
+async function acceptImageCandidate(){const own=generation,p=candidatePreview.value;if(!p||busy.value)return;busy.value=true;try{await axios.post('/v04/studio/image-edit/accept',{projectId:props.projectId,scriptId:props.scriptId,jobId:p.jobId,previewHash:p.previewHash});if(own===generation){candidatePreview.value=null;await loadImageCandidates();emit('production-asset-applied');}}catch(e:any){if(own===generation)error.value=e?.message||'采用候选失败';}finally{if(own===generation)busy.value=false;}}
+async function rejectImageCandidate(c:any){const own=generation;busy.value=true;try{await axios.post('/v04/studio/image-edit/reject',{projectId:props.projectId,scriptId:props.scriptId,jobId:c.id});if(own===generation){if(editingCandidate.value===c.id)editingCandidate.value=null;await loadImageCandidates();}}catch(e:any){if(own===generation)error.value=e?.message||'放弃候选失败';}finally{if(own===generation)busy.value=false;}}
 async function finishStudioResponse(request: Submission, response: any) {
   if (request.generation !== generation) return;
   const agent = localAgent(request.id);
+  if(response.data.candidatePreview)candidatePreview.value=response.data.candidatePreview;
+  if(response.data.imageCandidate||response.data.mode==='ASSET_IMAGE_REVIEW')await loadImageCandidates();
+  if(request.generation!==generation)return;
   if (["PROPOSE_CHANGE", "ASSET_CREATE"].includes(response.data.mode) && response.data.actionProposal && response.data.assistantMessageId)
     proposalWorkspace.putStudioAction(response.data.assistantMessageId, response.data.actionProposal,
       `${request.ctx.projectId}:${request.ctx.scriptId}`);
@@ -176,9 +202,9 @@ async function submit(request: Submission) {
     }
     if (own !== generation) return;
     request.chatDispatched = true;
-    const studioTurn = props.studioMode && request.files.length === 0;
+    const studioTurn = props.studioMode;
     const response: any = await axios.post(studioTurn ? "/v04/agent/studio-turn" : "/v04/agent/chat", studioTurn
-      ? { context: request.ctx, message: request.content, ...(request.optionalDraft ? { optionalDraft: request.optionalDraft } : {}) }
+      ? { context: request.ctx, message: request.content, attachmentIds: request.attachmentIds, ...(request.parentCandidateId?{parentCandidateId:request.parentCandidateId}:{}), ...(request.optionalDraft ? { optionalDraft: request.optionalDraft } : {}) }
       : { context: request.ctx, message: request.content, attachmentIds: request.attachmentIds });
     if (own !== generation) return;
     const agent = localAgent(request.id);
@@ -201,7 +227,7 @@ async function submit(request: Submission) {
     }
   } catch (e: any) {
     if (own !== generation) return;
-    if (props.studioMode && request.files.length === 0 && e?.terminal === true && typeof e?.userMessageId === "string") {
+    if (props.studioMode && e?.terminal === true && typeof e?.userMessageId === "string") {
       await showStudioTerminal(request, e);
       return;
     }
@@ -223,7 +249,7 @@ async function send() {
   if ((!draft.value.trim() && !pendingImages.value.length) || busy.value) return;
   const id = crypto.randomUUID(), content = draft.value.trim(), files = [...pendingImages.value];
   const visual = props.studioMode && props.selected?.type === "ASSET" ? proposalWorkspace.current().visualSpecProposals[props.selected.key] : null;
-  const request: Submission = { id, generation, startedAt: Date.now(), content, files, ctx: context(), attachmentIds: [], baselineIds: new Set(historyMessages.value.map(m => m.id)), chatDispatched: false,
+  const request: Submission = { id, generation, startedAt: Date.now(), content, files, ctx: context(), attachmentIds: [], baselineIds: new Set(historyMessages.value.map(m => m.id)), chatDispatched: false, ...(editingCandidate.value?{parentCandidateId:editingCandidate.value}:{}),
     optionalDraft: visual ? { sourceAssetRevision: visual.sourceAssetRevision, spec: visual.spec } : undefined };
   submissions.set(id, request);
   const attachments = files.map((file, i) => {
@@ -247,7 +273,7 @@ async function retryRequest(requestId: string) {
     busy.value = true; scrollToLatest();
     try {
       const response: any = await axios.post("/v04/agent/studio-turn/retry", { context: request.ctx,
-        userMessageId: request.persistedUserMessageId,
+        userMessageId: request.persistedUserMessageId, attachmentIds:request.attachmentIds, ...(request.parentCandidateId?{parentCandidateId:request.parentCandidateId}:{}),
         ...(request.optionalDraft ? { optionalDraft: request.optionalDraft } : {}) });
       if (own === generation) await finishStudioResponse(request, response);
     } catch (e: any) {
@@ -327,11 +353,12 @@ async function applyReference() {
   catch (e: any) { error.value = e?.message || "图片用途确认失败"; }
   finally { busy.value = false; }
 }
-onMounted(() => { void load(); });
-watch(() => [props.projectId, props.scriptId], () => { generation++; historyGeneration++; clearImages(); historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; showVisionSettings.value = false; void load(); });
-onBeforeUnmount(() => { generation++; clearImages(); });
+onMounted(() => { void load(); if(props.studioMode){void loadImageCandidates();candidatePoll=setInterval(()=>void loadImageCandidates(),2500);} });
+watch(() => [props.projectId, props.scriptId], () => { generation++; historyGeneration++; clearImages(); clearCandidateImages();imageCandidates.value=[];editingCandidate.value=null;candidatePreview.value=null; historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; showVisionSettings.value = false; void load();void loadImageCandidates(); });
+onBeforeUnmount(() => { generation++; clearImages();if(candidatePoll)clearInterval(candidatePoll);clearCandidateImages(); });
 </script>
 <style scoped>
+.image-candidates{max-height:38vh;overflow:auto;border-top:1px solid var(--td-component-border);padding:.7rem}.image-candidate{padding:.5rem 0}.image-candidate img{display:block;max-width:100%;max-height:220px;width:auto;height:auto;object-fit:contain;margin:.5rem auto}.image-candidate strong{font-size:.85rem}
 .agent{--user-ink:color-mix(in srgb,#779dce 72%,var(--td-text-color-primary));--agent-ink:color-mix(in srgb,#a792c1 72%,var(--td-text-color-primary));height:100%;min-height:0;display:flex;flex-direction:column;border-left:1px solid var(--td-component-border);background:var(--td-bg-color-container);color:var(--td-text-color-primary)}
 header{display:flex;align-items:center;justify-content:space-between;padding:1.25rem 1.2rem .75rem}header strong{font-size:1.05rem;letter-spacing:-.02em}header small{display:block;margin-top:.2rem;color:var(--td-text-color-secondary)}.status{font-size:.73rem;color:var(--td-brand-color);border:1px solid var(--td-component-border);padding:.25rem .55rem;border-radius:999px}.context{margin:0;padding:.35rem 1.2rem .8rem;color:var(--td-text-color-secondary);font-size:.77rem;border-bottom:1px solid var(--td-component-border)}
 .feed{min-height:0;flex:1;overflow-y:auto;padding:1rem 1.2rem;scrollbar-width:thin}.empty{color:var(--td-text-color-secondary);line-height:1.6}
