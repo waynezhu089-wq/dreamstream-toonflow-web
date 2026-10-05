@@ -25,8 +25,8 @@ test('Reference Pack keeps independent purpose jobs scoped; subject previews are
   for(const assetKind of ['HUMAN_CHARACTER','CREATURE','PROP','VEHICLE','CELESTIAL','MATERIAL_FX','UNKNOWN'])assert.equal(assetPreviewFit({assetKind}),'contain');
   assert.equal(assetPreviewFit({assetKind:'ENVIRONMENT'}),'cover');
   const workspace=read('src/views/pilot/StudioWorkspace.vue'),drawer=read('src/views/pilot/StudioAssetDrawer.vue');
-  assert.match(workspace,/:style="\{objectFit:assetPreviewFit\(item.asset\)\}"/);
-  assert.match(workspace,/\.asset-visual\{height:125px;overflow:hidden\}/);
+  assert.match(workspace,/:class="assetPreviewFit\(item.asset\) === 'cover' \? 'asset-preview-cover' : 'asset-preview-contain'"/);
+  assert.match(workspace,/\.asset-visual\{height:125px;overflow:hidden;display:flex;align-items:center;justify-content:center\}/);
   assert.match(drawer,/\.visual img\{[^}]*object-fit:contain/);
   assert.match(workspace,/if\(token!==generation\)return;if\(executionPurpose\)/);
   for(const name of ['StudioWorkspace','StudioAssetDrawer']){const sfc=parse(read(`src/views/pilot/${name}.vue`));assert.equal(compileTemplate({source:sfc.descriptor.template.content,filename:name+'.vue',id:name}).errors.length,0);}
@@ -260,4 +260,22 @@ test('legacy MAIN_PREVIEW recovers newest valid persisted job without session dr
  assert.equal(find({...asset,revision:3},null,[valid],scope),null);
  for(const status of ['QUEUED','RUNNING','SUCCEEDED','FAILED'])assert.equal(find(asset,null,[job(status,{status})],scope).status,status);
  assert.equal(find(asset,{...scope,imageJobId:'missing',stage:'WAITING_IMAGE_EXECUTOR'},[valid],scope),null);
+});
+
+test('subject thumbnails use intrinsic contain sizing and environments use separate cover class',()=>{
+ const {assetPreviewFit}=source('src/views/pilot/studioPresentation.ts');
+ const workspace=read('src/views/pilot/StudioWorkspace.vue');
+ const sfc=parse(workspace),css=sfc.descriptor.styles.map(s=>s.content).join('\n');
+ const contain=css.match(/\.asset-preview-contain\{([^}]+)\}/)[1];
+ const cover=css.match(/\.asset-preview-cover\{([^}]+)\}/)[1];
+ for(const rule of ['display:block','max-width:100%','max-height:100%','width:auto','height:auto','object-fit:contain','object-position:center'])assert.ok(contain.split(';').includes(rule),rule);
+ for(const rule of ['display:block','width:100%','height:100%','object-fit:cover','object-position:center'])assert.ok(cover.split(';').includes(rule),rule);
+ assert.doesNotMatch(contain,/(?:^|;)width:100%|(?:^|;)height:100%/);
+ assert.doesNotMatch(css,/\.asset-visual\s+img\s*\{/);
+ const image=sfc.descriptor.template.content.match(/<img v-if="imageFor\(item\)"[^>]+>/)[0];
+ const classExpression=image.match(/:class="([^"]+)"/)[1];
+ const classFor=new Function('assetPreviewFit','item','return '+classExpression);
+ for(const assetKind of ['HUMAN_CHARACTER','CREATURE','PROP','VEHICLE'])assert.equal(classFor(assetPreviewFit,{asset:{assetKind}}),'asset-preview-contain');
+ assert.equal(classFor(assetPreviewFit,{asset:{assetKind:'ENVIRONMENT'}}),'asset-preview-cover');
+ assert.doesNotMatch(image,/:style=/);
 });
