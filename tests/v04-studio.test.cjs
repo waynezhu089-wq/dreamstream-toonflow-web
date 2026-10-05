@@ -59,7 +59,7 @@ test('OPT-028B Studio selects the subject-only profile but reuses the existing i
   assert.match(studio,/\/studio\/executor\/comfy\/test[\s\S]*?profile:executor\.profile/);
   assert.match(studio,/\/studio\/executor\/comfy\/configure[\s\S]*?profile:executor\.profile/);
   assert.match(studio,/\/studio\/executor\/comfy\/current/);
-  assert.match(studio,/currentDraftImageJob\(item\.asset,item\.draftPackage,imageJobs\.value\)/);
+  assert.match(studio,/currentDraftImageJob\(item\.asset,item\.draftPackage,imageJobs\.value,scope\(\)\)/);
   assert.match(studio,/\/studio\/draft-image\/enqueue/);
   assert.match(studio,/job\.status!=='SUCCEEDED'/);
   assert.match(studio,/draftImages\.value\[job\.id\]=URL\.createObjectURL\(blob\)/);
@@ -242,4 +242,22 @@ test('bulk review stops when project scope changes and does not apply late respo
   const {confirmNormalVisuals}=source('src/views/pilot/studioBulkReview.ts');let current=true,applied=0;
   const result=await confirmNormalVisuals({projectId:1,scriptId:1,keys:['A','B'],proposals:{A:{sourceAssetRevision:1,spec:{}},B:{sourceAssetRevision:1,spec:{}}},read:async()=>({assets:[{canonicalKey:'A',revision:1,status:'ACTIVE',sourcePolicy:'AI_ALLOWED',category:'CHAR'}]}),preview:async()=>{current=false;return {previewHash:'x',issues:[]}},apply:async()=>{applied++},isCurrent:()=>current,onApplied:()=>{}});
   assert.equal(applied,0);assert.equal(result.applied,0);
+});
+
+test('legacy MAIN_PREVIEW recovers newest valid persisted job without session draft',()=>{
+ const {currentDraftImageJob:find}=source('src/views/pilot/studioDraftImageView.ts');
+ const asset={canonicalKey:'CHAR-001',revision:2},scope={projectId:9,scriptId:3};
+ const job=(id,extra={})=>({id,...scope,canonicalKey:'CHAR-001',sourceAssetRevision:2,status:'SUCCEEDED',executionPurpose:'SUBJECT_MAIN_PREVIEW',outputs:[{artifactId:id,role:'MAIN_PREVIEW'}],...extra});
+ const valid=job('latest');
+ assert.equal(find(asset,{...scope,imageJobId:'exact',stage:'WAITING_IMAGE_EXECUTOR'},[valid,job('exact')]).id,'exact');
+ assert.equal(find(asset,null,[valid,job('older')],scope),valid);
+ assert.equal(find(asset,null,[job('null',{executionPurpose:null})],scope).id,'null');
+ const excluded=['STALE','CANCELLED'].map(status=>job(status,{status}));
+ for(const executionPurpose of ['FACE_HERO','FULL_BODY_FRONT','FULL_BODY_BACK','TURNAROUND_SHEET'])excluded.push(job(executionPurpose,{executionPurpose}));
+ excluded.push(job('old-sheet',{executionPurpose:null,outputs:[{artifactId:'sheet',role:'TURNAROUND_SHEET'}]}));
+ assert.equal(find(asset,null,[...excluded,valid],scope),valid);
+ assert.equal(find(asset,null,[valid],{...scope,scriptId:4}),null);
+ assert.equal(find({...asset,revision:3},null,[valid],scope),null);
+ for(const status of ['QUEUED','RUNNING','SUCCEEDED','FAILED'])assert.equal(find(asset,null,[job(status,{status})],scope).status,status);
+ assert.equal(find(asset,{...scope,imageJobId:'missing',stage:'WAITING_IMAGE_EXECUTOR'},[valid],scope),null);
 });

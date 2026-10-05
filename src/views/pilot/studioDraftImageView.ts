@@ -1,5 +1,5 @@
 export type DraftImageJob = { id: string; canonicalKey: string; sourceAssetRevision: number;
-  executionPurpose?: string | null; projectId?: number; scriptId?: number; status: 'QUEUED'|'RUNNING'|'SUCCEEDED'|'FAILED'|'STALE'|'CANCELLED'; outputs?: { artifactId: string }[];
+  executionPurpose?: string | null; projectId?: number; scriptId?: number; status: 'QUEUED'|'RUNNING'|'SUCCEEDED'|'FAILED'|'STALE'|'CANCELLED'; outputs?: { artifactId: string; role?: string }[];
   errorCode?: string | null; errorMessage?: string | null };
 
 const labels: Record<DraftImageJob['status'], string> = {
@@ -8,10 +8,22 @@ const labels: Record<DraftImageJob['status'], string> = {
 };
 
 export function currentDraftImageJob(asset: { canonicalKey: string; revision: number },
-  draftPackage: { imageJobId?: string | null; stage?: string } | null | undefined, jobs: DraftImageJob[]) {
-  if (!draftPackage?.imageJobId || draftPackage.stage !== 'WAITING_IMAGE_EXECUTOR') return null;
-  return jobs.find(job => job.id === draftPackage.imageJobId && job.canonicalKey === asset.canonicalKey &&
-    Number(job.sourceAssetRevision) === Number(asset.revision)) ?? null;
+  draftPackage: { imageJobId?: string | null; stage?: string; projectId?: number; scriptId?: number } | null | undefined,
+  jobs: DraftImageJob[], scope?: { projectId: number; scriptId: number } | null) {
+  const identity = (job: DraftImageJob) => job.canonicalKey === asset.canonicalKey &&
+    Number(job.sourceAssetRevision) === Number(asset.revision);
+  if (draftPackage?.imageJobId) {
+    if (draftPackage.stage !== 'WAITING_IMAGE_EXECUTOR') return null;
+    return jobs.find(job => job.id === draftPackage.imageJobId && identity(job)) ?? null;
+  }
+  const projectId = scope?.projectId ?? draftPackage?.projectId;
+  const scriptId = scope?.scriptId ?? draftPackage?.scriptId;
+  if (projectId == null || scriptId == null) return null;
+  // Persisted jobs arrive in createdAt DESC order; never substitute another purpose.
+  return jobs.find(job => identity(job) && job.projectId === projectId && job.scriptId === scriptId &&
+    (job.executionPurpose == null || job.executionPurpose === 'SUBJECT_MAIN_PREVIEW') &&
+    ['QUEUED','RUNNING','SUCCEEDED','FAILED'].includes(job.status) &&
+    !job.outputs?.some(output => output.role != null && output.role !== 'MAIN_PREVIEW')) ?? null;
 }
 
 export function draftImageStatus(job: DraftImageJob | null) { return job ? labels[job.status] : null; }
