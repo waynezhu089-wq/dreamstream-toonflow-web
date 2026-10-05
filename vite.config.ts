@@ -1,5 +1,6 @@
 import { fileURLToPath, URL } from "node:url";
 import { realpathSync } from "node:fs";
+import { execFileSync } from 'node:child_process';
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import AutoImport from "unplugin-auto-import/vite";
@@ -7,8 +8,13 @@ import Components from "unplugin-vue-components/vite";
 import { TDesignResolver } from "@tdesign-vue-next/auto-import-resolver";
 import { viteSingleFile } from "vite-plugin-singlefile";
 import postcsspxtoviewport from "postcss-px-to-viewport";
+function experimentalCommit() {
+  try { return execFileSync('git',['-c',`safe.directory=${process.cwd()}`,'rev-parse','HEAD'],{encoding:'utf8',windowsHide:true}).trim(); }
+  catch { return null; }
+}
 
 export default defineConfig({
+  define: { 'import.meta.env.VITE_EXPERIMENTAL_COMMIT': JSON.stringify(experimentalCommit()) },
   base: "./",
   cacheDir: ".v04-vite-cache",
   build: {
