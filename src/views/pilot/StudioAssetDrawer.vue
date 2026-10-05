@@ -13,16 +13,16 @@
     <section v-if="item.draftPackage" class="draft-summary"><strong>Studio 文本草案</strong>
       <p>{{ item.draftPackage.visualSpecDraft?.visualIdentitySummary || '正在准备视觉描述…' }}</p>
       <p>视觉草案：{{ item.draftPackage.draftPromptIR ? '已准备' : '正在整理' }}</p>
-      <p>图片执行器：{{ draftImageStatus(item.imageJob) || (item.draftPackage.stage === 'WAITING_IMAGE_EXECUTOR' ? '等待生成' : '尚未执行') }}</p>
-      <p v-if="item.imageJob?.executionPurpose==='SUBJECT_MAIN_PREVIEW'">本次图片：Z-Image 人物主视图 · 非三视图</p>
+      <p>图片状态：{{ draftImageStatus(item.imageJob) || (item.draftPackage.stage === 'WAITING_IMAGE_EXECUTOR' ? '等待生成' : '尚未执行') }}</p>
+      <p v-if="item.imageJob?.executionPurpose==='SUBJECT_MAIN_PREVIEW'">本次图片：人物主视图</p>
       <p v-if="item.imageJob?.errorMessage" class="warning">{{ item.imageJob.errorMessage }}</p>
       <p v-if="item.draftPackage.error" class="warning">{{ item.draftPackage.error.message }}</p>
       <details v-if="draftNotes.length" class="draft-notes"><summary>AI 草案提示（{{ draftNotes.length }}）</summary><p v-for="(note,index) in draftNotes" :key="index">{{ note }}</p></details>
       <small>草案不是已确认 Visual Spec 或正式 Prompt Build。</small>
     </section>
     <p v-if="item.status==='需要处理'" class="warning">当前视觉草案或已确认版本需要单独审查。</p>
-    <section v-if="!real && item.asset.assetKind==='HUMAN_CHARACTER' && item.draftPackage?.stage==='WAITING_IMAGE_EXECUTOR'" class="draft-summary"><h3>人物参考包 · 草案</h3><small>独立参考职责；不会自动确认或替代四视图。</small><div v-for="purpose in referencePurposes" :key="purpose"><button @click="$emit('select-purpose',purpose)">{{ referenceName(purpose) }} · {{ draftImageStatus(item.referenceJobs?.[purpose]) || '尚未生成' }}</button><button :disabled="['QUEUED','RUNNING'].includes(item.referenceJobs?.[purpose]?.status)" @click="$emit('draft-image',purpose)">生成此参考</button></div></section>
-    <div class="actions"><button type="button" @click="$emit('modify')">让 Agent 修改</button><button v-if="!real && item.confirmedSpec && item.draftPackage?.stage!=='WAITING_IMAGE_EXECUTOR'" type="button" @click="$emit('prepare-confirmed')">准备已确认视觉规格（不调用模型）</button><button v-if="!real && item.draftPackage?.stage==='WAITING_IMAGE_EXECUTOR'" type="button" @click="$emit('draft-image')">{{ item.imageJob ? '重新生成草图' : '生成草图' }}</button><button v-if="!real" type="button" @click="$emit('regenerate')">重新生成视觉草案</button><button type="button" @click="$emit('professional')">进入专业精修</button></div>
+    <section v-if="!real && item.asset.assetKind==='HUMAN_CHARACTER' && item.draftPackage?.stage==='WAITING_IMAGE_EXECUTOR'" class="draft-summary"><h3>人物参考包 · 草案</h3><small>独立参考职责；不会自动确认或替代四视图。</small><div v-for="purpose in referencePurposes" :key="purpose"><button @click="$emit('select-purpose',purpose)">{{ referenceName(purpose) }} · {{ draftImageStatus(item.referenceJobs?.[purpose]) || '尚未生成' }}</button><button :disabled="['QUEUED','RUNNING'].includes(item.referenceJobs?.[purpose]?.status)" @click="$emit('request-image',referenceName(purpose))">生成此参考</button></div></section>
+    <div class="actions"><button type="button" @click="$emit('modify')">让 Agent 修改</button><button v-if="!real && item.confirmedSpec && item.draftPackage?.stage!=='WAITING_IMAGE_EXECUTOR'" type="button" @click="$emit('prepare-confirmed')">准备已确认视觉规格（不调用模型）</button><button v-if="!real && item.draftPackage?.stage==='WAITING_IMAGE_EXECUTOR'" type="button" @click="$emit('request-image','新的草图')">{{ item.imageJob ? '重新生成草图' : '生成草图' }}</button><button v-if="!real" type="button" @click="$emit('regenerate')">重新生成视觉草案</button><button type="button" @click="$emit('professional')">进入专业精修</button></div>
   </aside>
 </template>
 <script setup lang="ts">
@@ -33,7 +33,7 @@ import { draftImageStatus } from './studioDraftImageView';
 import { drawerBounds } from './studioLayout';
 import { useResizablePane } from './useResizablePane';
 const props = defineProps<{ item: any | null; imageUrl?: string | null; width: number }>();
-const emit = defineEmits<{(e:'close'):void;(e:'modify'):void;(e:'regenerate'):void;(e:'prepare-confirmed'):void;(e:'draft-image',purpose?:string):void;(e:'select-purpose',purpose:string):void;(e:'professional'):void;(e:'width-change',value:number):void}>();
+const emit = defineEmits<{(e:'close'):void;(e:'modify'):void;(e:'regenerate'):void;(e:'prepare-confirmed'):void;(e:'request-image',label:string):void;(e:'draft-image',purpose?:string):void;(e:'select-purpose',purpose:string):void;(e:'professional'):void;(e:'width-change',value:number):void}>();
 const referenceName=(purpose:string)=>({FACE_HERO:'人物近景',FULL_BODY_FRONT:'正面全身',FULL_BODY_BACK:'背面全身',SIDE_SPECIAL_LEFT:'左侧参考',SIDE_SPECIAL_RIGHT:'右侧参考',DETAIL_REFERENCE:'细节参考'}[purpose]||'参考图');
 const referencePurposes=['FACE_HERO','FULL_BODY_FRONT','FULL_BODY_BACK','SIDE_SPECIAL_LEFT','SIDE_SPECIAL_RIGHT','DETAIL_REFERENCE'];
 const currentWidth = computed({get:()=>props.width,set:value=>emit('width-change',value)});
