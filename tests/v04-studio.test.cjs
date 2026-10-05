@@ -272,7 +272,7 @@ test('subject thumbnails use intrinsic contain sizing and environments use separ
  for(const rule of ['display:block','width:100%','height:100%','object-fit:cover','object-position:center'])assert.ok(cover.split(';').includes(rule),rule);
  assert.doesNotMatch(contain,/(?:^|;)width:100%|(?:^|;)height:100%/);
  assert.doesNotMatch(css,/\.asset-visual\s+img\s*\{/);
- const image=sfc.descriptor.template.content.match(/<img v-if="imageFor\(item\)"[^>]+>/)[0];
+ const image=sfc.descriptor.template.content.match(/<img v-if="image.src"[^>]+>/)[0];
  const classExpression=image.match(/:class="([^"]+)"/)[1];
  const classFor=new Function('assetPreviewFit','item','return '+classExpression);
  for(const assetKind of ['HUMAN_CHARACTER','CREATURE','PROP','VEHICLE'])assert.equal(classFor(assetPreviewFit,{asset:{assetKind}}),'asset-preview-contain');
