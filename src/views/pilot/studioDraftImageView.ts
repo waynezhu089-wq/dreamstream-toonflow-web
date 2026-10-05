@@ -1,5 +1,5 @@
 export type DraftImageJob = { id: string; canonicalKey: string; sourceAssetRevision: number;
-  status: 'QUEUED'|'RUNNING'|'SUCCEEDED'|'FAILED'|'STALE'|'CANCELLED'; outputs?: { artifactId: string }[];
+  executionPurpose?: string | null; projectId?: number; scriptId?: number; status: 'QUEUED'|'RUNNING'|'SUCCEEDED'|'FAILED'|'STALE'|'CANCELLED'; outputs?: { artifactId: string }[];
   errorCode?: string | null; errorMessage?: string | null };
 
 const labels: Record<DraftImageJob['status'], string> = {
@@ -15,3 +15,15 @@ export function currentDraftImageJob(asset: { canonicalKey: string; revision: nu
 }
 
 export function draftImageStatus(job: DraftImageJob | null) { return job ? labels[job.status] : null; }
+
+export function currentDraftImageJobForPurpose(asset: { canonicalKey: string; revision: number },
+  draftPackage: { imageJobsByPurpose?: Record<string,string>; projectId?: number; scriptId?: number; stage?: string } | null | undefined,
+  jobs: DraftImageJob[], executionPurpose: string) {
+  if (!draftPackage || draftPackage.stage !== 'WAITING_IMAGE_EXECUTOR') return null;
+  const match = (job: DraftImageJob) => job.canonicalKey === asset.canonicalKey &&
+    Number(job.sourceAssetRevision) === Number(asset.revision) && job.executionPurpose === executionPurpose &&
+    (draftPackage.projectId == null || job.projectId === draftPackage.projectId) &&
+    (draftPackage.scriptId == null || job.scriptId === draftPackage.scriptId);
+  const id = draftPackage.imageJobsByPurpose?.[executionPurpose];
+  return (id ? jobs.find(job => job.id === id && match(job)) : jobs.find(job => match(job) && ['QUEUED','RUNNING','SUCCEEDED','FAILED'].includes(job.status))) ?? null;
+}

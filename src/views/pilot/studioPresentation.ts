@@ -53,3 +53,8 @@ export function studioAssets(state: any, proposals: Record<string, any>, draftPa
       review, refs, outputPath, placeholder: isRealReference(asset) ? "等待真实参考" : review?.turnaroundStatus === "PLANNED" ? "三视图已规划" : review?.previewStatus === "PLANNED" ? "等待低清预览" : studioKind(asset) + "待生成" };
   });
 }
+
+// Complete subjects take precedence over filling the thumbnail.
+export function assetPreviewFit(asset: { assetKind?: string }): "contain" | "cover" {
+  return asset.assetKind === "ENVIRONMENT" ? "cover" : "contain";
+}

@@ -21,6 +21,7 @@
       <small>草案不是已确认 Visual Spec 或正式 Prompt Build。</small>
     </section>
     <p v-if="item.status==='需要处理'" class="warning">当前视觉草案或已确认版本需要单独审查。</p>
+    <section v-if="!real && item.asset.assetKind==='HUMAN_CHARACTER' && item.draftPackage?.stage==='WAITING_IMAGE_EXECUTOR'" class="draft-summary"><h3>人物参考包 · 草案</h3><small>独立参考职责；不会自动确认或替代四视图。</small><div v-for="purpose in referencePurposes" :key="purpose"><button @click="$emit('select-purpose',purpose)">{{ purpose }} · {{ draftImageStatus(item.referenceJobs?.[purpose]) || '尚未生成' }}</button><button :disabled="['QUEUED','RUNNING'].includes(item.referenceJobs?.[purpose]?.status)" @click="$emit('draft-image',purpose)">生成此参考</button></div></section>
     <div class="actions"><button type="button" @click="$emit('modify')">让 Agent 修改</button><button v-if="!real && item.confirmedSpec && item.draftPackage?.stage!=='WAITING_IMAGE_EXECUTOR'" type="button" @click="$emit('prepare-confirmed')">准备已确认视觉规格（不调用模型）</button><button v-if="!real && item.draftPackage?.stage==='WAITING_IMAGE_EXECUTOR'" type="button" @click="$emit('draft-image')">{{ item.imageJob ? '重新生成草图' : '生成草图' }}</button><button v-if="!real" type="button" @click="$emit('regenerate')">重新生成视觉草案</button><button type="button" @click="$emit('professional')">进入专业精修</button></div>
   </aside>
 </template>
@@ -32,7 +33,8 @@ import { draftImageStatus } from './studioDraftImageView';
 import { drawerBounds } from './studioLayout';
 import { useResizablePane } from './useResizablePane';
 const props = defineProps<{ item: any | null; imageUrl?: string | null; width: number }>();
-const emit = defineEmits<{(e:'close'):void;(e:'modify'):void;(e:'regenerate'):void;(e:'prepare-confirmed'):void;(e:'draft-image'):void;(e:'professional'):void;(e:'width-change',value:number):void}>();
+const emit = defineEmits<{(e:'close'):void;(e:'modify'):void;(e:'regenerate'):void;(e:'prepare-confirmed'):void;(e:'draft-image',purpose?:string):void;(e:'select-purpose',purpose:string):void;(e:'professional'):void;(e:'width-change',value:number):void}>();
+const referencePurposes=['FACE_HERO','FULL_BODY_FRONT','FULL_BODY_BACK','SIDE_SPECIAL_LEFT','SIDE_SPECIAL_RIGHT','DETAIL_REFERENCE'];
 const currentWidth = computed({get:()=>props.width,set:value=>emit('width-change',value)});
 const resize = useResizablePane({value:currentWidth,defaultValue:440,axis:'x',reverse:true,step:16,
   bounds:()=>drawerBounds(window.innerWidth),measure:event=>window.innerWidth-event.clientX-19});

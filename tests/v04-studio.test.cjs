@@ -11,6 +11,27 @@ function source(file) { const absolute=path.resolve(root,file),module={exports:{
   new Function('module','exports','require',compiled)(module,module.exports,name=>name.startsWith('.')?source(path.join(path.dirname(absolute),name+'.ts')):name.startsWith('@/')?source(path.join(root,'src',name.slice(2)+'.ts')):require(name));return module.exports; }
 function storage(){const map=new Map();global.sessionStorage={getItem:key=>map.get(key)||null,setItem:(key,value)=>map.set(key,value),removeItem:key=>map.delete(key)};return map;}
 
+test('Reference Pack keeps independent purpose jobs scoped; subject previews are contained',()=>{
+  const {currentDraftImageJobForPurpose,currentDraftImageJob}=source('src/views/pilot/studioDraftImageView.ts');
+  const {assetPreviewFit}=source('src/views/pilot/studioPresentation.ts');
+  const asset={canonicalKey:'CHAR-001',revision:1};
+  const jobs=['FACE_HERO','FULL_BODY_FRONT','FULL_BODY_BACK'].map((executionPurpose,i)=>({id:String(i),projectId:9,scriptId:3,canonicalKey:'CHAR-001',sourceAssetRevision:1,executionPurpose,status:'SUCCEEDED'}));
+  const draft={projectId:9,scriptId:3,stage:'WAITING_IMAGE_EXECUTOR',imageJobsByPurpose:Object.fromEntries(jobs.map(j=>[j.executionPurpose,j.id])),imageJobId:'legacy'};
+  for(const j of jobs)assert.equal(currentDraftImageJobForPurpose(asset,draft,jobs,j.executionPurpose),j);
+  jobs[0].status='FAILED';assert.equal(currentDraftImageJobForPurpose(asset,draft,jobs,'FULL_BODY_FRONT').status,'SUCCEEDED');
+  assert.equal(currentDraftImageJobForPurpose(asset,{...draft,projectId:10},jobs,'FACE_HERO'),null);
+  assert.equal(currentDraftImageJobForPurpose({...asset,revision:2},draft,jobs,'FACE_HERO'),null);
+  assert.equal(currentDraftImageJob(asset,draft,[{id:'legacy',...asset,sourceAssetRevision:1,status:'SUCCEEDED'}]).id,'legacy');
+  for(const assetKind of ['HUMAN_CHARACTER','CREATURE','PROP','VEHICLE','CELESTIAL','MATERIAL_FX','UNKNOWN'])assert.equal(assetPreviewFit({assetKind}),'contain');
+  assert.equal(assetPreviewFit({assetKind:'ENVIRONMENT'}),'cover');
+  const workspace=read('src/views/pilot/StudioWorkspace.vue'),drawer=read('src/views/pilot/StudioAssetDrawer.vue');
+  assert.match(workspace,/:style="\{objectFit:assetPreviewFit\(item.asset\)\}"/);
+  assert.match(workspace,/\.asset-visual\{height:125px;overflow:hidden\}/);
+  assert.match(drawer,/\.visual img\{[^}]*object-fit:contain/);
+  assert.match(workspace,/if\(token!==generation\)return;if\(executionPurpose\)/);
+  for(const name of ['StudioWorkspace','StudioAssetDrawer']){const sfc=parse(read(`src/views/pilot/${name}.vue`));assert.equal(compileTemplate({source:sfc.descriptor.template.content,filename:name+'.vue',id:name}).errors.length,0);}
+});
+
 test('OPT-028 draft image view only displays a current scoped job and restores its status from persisted identity',()=>{
   const {currentDraftImageJob,draftImageStatus}=source('src/views/pilot/studioDraftImageView.ts');
   const asset={canonicalKey:'CHAR-001',revision:2};

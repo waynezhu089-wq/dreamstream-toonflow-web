@@ -11,6 +11,7 @@ export type StudioAssetDraftPackage = {
   diagnostics: { normalizationWarnings: any[]; qualityWarnings: any[]; completenessIssues: string[] };
   generationIntent: string | null; draftPromptIR: any | null; draftRenderedPrompt: any | null;
   imageJobId?: string | null;
+  imageJobsByPurpose?: Record<string, string>;
   previewPlan: any | null;
   stage: "PENDING" | "GENERATING_SPEC" | "SPEC_READY" | "PROMPT_READY" | "WAITING_IMAGE_EXECUTOR" | "NEEDS_ATTENTION" | "FAILED" | "STALE";
   error: { code: string; message: string } | null;
