@@ -65,7 +65,7 @@ test('OPT-028B Studio selects the subject-only profile but reuses the existing i
   assert.match(studio,/draftImages\.value\[job\.id\]=URL\.createObjectURL\(blob\)/);
   assert.match(studio,/@prepare-confirmed="prepareConfirmedSelected"/);
   assert.match(studio,/Number\(spec\.sourceAssetRevision\)===Number\(item\.asset\.revision\)/);
-  assert.match(read('src/views/pilot/StudioAssetDrawer.vue'),/准备已确认视觉规格（不调用模型）/);
+  assert.doesNotMatch(parse(read('src/views/pilot/StudioAssetDrawer.vue')).descriptor.template.content,/准备已确认视觉规格|生成草图|Visual Spec|Prompt IR/);
 });
 
 test('OPT-028B confirmed CHAR visual spec compiles into the existing draft package without calling the model',async()=>{
@@ -287,7 +287,7 @@ test('OPT-029A Studio composer routes attachments through Studio Turn and candid
 });
 function componentFunction(file,name,bindings){const script=parse(read(file)).descriptor.scriptSetup.content;const ast=ts.createSourceFile('component.ts',script,ts.ScriptTarget.Latest,true);const node=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name);assert.ok(node,name);const code=ts.transpileModule(node.getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;return new Function('bindings','with(bindings){'+code+';return '+name+';}')(bindings);}
 test('OPT-029A candidate polling drops late results after scope switch',async()=>{
- let release;const bindings={generation:2,imageCandidates:{value:[]},candidateUrls:{value:{}},props:{studioMode:true,projectId:9,scriptId:3},axios:{post:()=>new Promise(r=>release=r)},URL};const fn=componentFunction('src/views/pilot/ProjectAgentPanel.vue','loadImageCandidates',bindings);
+ let release;const bindings={generation:2,candidateLoading:false,imageCandidates:{value:[]},candidateUrls:{value:{}},props:{studioMode:true,projectId:9,scriptId:3},axios:{post:()=>new Promise(r=>release=r)},URL};const fn=componentFunction('src/views/pilot/ProjectAgentPanel.vue','loadImageCandidates',bindings);
  const current=fn();release({data:[{id:'current',outputs:[]}]});await current;assert.equal(bindings.imageCandidates.value[0].id,'current');
  const late=fn();bindings.generation++;bindings.props.projectId=10;bindings.imageCandidates.value=[];release({data:[{id:'old-project',outputs:[]}]});await late;assert.deepEqual(bindings.imageCandidates.value,[]);assert.deepEqual(bindings.candidateUrls.value,{});
 });

@@ -1,11 +1,11 @@
 <template>
-  <aside class="agent" :class="{ 'studio-agent': studioMode }" aria-label="项目智能体">
+  <aside ref="agentElement" class="agent" :class="{ 'studio-agent': studioMode }" aria-label="项目智能体">
     <header>
       <div><strong>Project Agent</strong><small>同一个项目，对话持续保留</small></div>
-      <span class="status">{{ busy ? "思考中" : "协作中" }}</span>
+      <span class="status" role="status" aria-live="polite"><span v-if="activity.running" class="studio-spinner" aria-hidden="true" />{{ activity.label }}</span>
     </header>
     <p class="context">{{ studioMode ? scopeLabel || '正在讨论：整个项目' : `${stage} · ${selected ? `${selected.type} ${selected.key}` : '整个项目'}` }}</p>
-    <details v-if="creativeMode && studioMode" class="more-actions"><summary>更多创意操作</summary><div class="quick-actions"><button :disabled="busy" @click="suggest('brief')">提出 Brief 修改</button><button :disabled="busy" @click="suggest('treatment')">生成 Treatment 提案</button><button :disabled="busy" @click="suggest('script')">生成 Script 提案</button></div></details>
+    <details v-if="creativeMode && studioMode" class="more-actions"><summary>更多创意操作</summary><div class="quick-actions"><StudioActionButton label="调整创意方向" working="正在准备方案…" :disabled="busy" :scope-key="projectId+':'+scriptId" :action="()=>suggest('brief')" /><StudioActionButton label="生成故事方案" working="正在准备方案…" :disabled="busy" :scope-key="projectId+':'+scriptId" :action="()=>suggest('treatment')" /><StudioActionButton label="生成剧本方案" working="正在准备方案…" :disabled="busy" :scope-key="projectId+':'+scriptId" :action="()=>suggest('script')" /></div></details>
     <div v-else-if="creativeMode" class="quick-actions"><button :disabled="busy" @click="suggest('brief')">提出 Brief 修改</button><button :disabled="busy" @click="suggest('treatment')">生成 Treatment 提案</button><button :disabled="busy" @click="suggest('script')">生成 Script 提案</button></div>
     <div ref="feed" class="feed" role="log" aria-live="polite">
       <p v-if="!messages.length" class="empty">先聊创意。讨论和图片会跟随这个项目；Agent 的建议不会直接改动正式内容。</p>
@@ -15,12 +15,12 @@
         <div v-if="m.phase === 'answering'" class="turn-progress" role="status">正在整理回答…</div>
         <div v-if="m.error" class="turn-error" role="alert"><span>{{ m.error }}</span><div class="turn-actions"><button v-if="m.visionConfigurable && !studioMode" type="button" @click="showVisionSettings=true">配置视觉模型</button><button v-if="m.retryable" type="button" :disabled="busy" @click="retryRequest(m.requestId!)">重试</button><button v-if="m.checkable" type="button" :disabled="busy" @click="checkStatus(m.requestId!)">检查状态</button></div></div>
         <p v-if="m.role === 'user'" class="user-content">{{ m.content }}</p>
-        <MdPreview v-else-if="m.content && !['thinking','analyzing','checking'].includes(m.phase || '')" class="agent-content" :theme="markdownTheme" :modelValue="m.content" preview-only preview-theme="github" />
+        <MdPreview v-else-if="m.content && !['thinking','analyzing','checking'].includes(m.phase || '')" class="agent-content" :theme="markdownTheme" :modelValue="turnContent(m)" preview-only preview-theme="github" />
         <div v-if="studioMode && studioActionFor(m)" class="studio-proposal">
           <strong>{{ studioActionFor(m).action.targetType === 'ASSET_CREATE' ? '新增独立素材提案' : '建议修改' }} · {{ studioActionFor(m).action.summary }}</strong>
           <p>{{ studioActionFor(m).action.rationale }}</p>
           <template v-if="studioActionFor(m).action.targetType === 'ASSET_CREATE'">
-            <p>{{ studioActionFor(m).action.proposal.asset.name }} · {{ studioActionFor(m).action.proposal.asset.category }} / {{ studioActionFor(m).action.proposal.asset.assetKind }}</p>
+            <p>{{ studioActionFor(m).action.proposal.asset.name }}</p>
             <p v-if="studioActionFor(m).action.proposal.asset.ownerKey">归属：{{ studioActionFor(m).action.proposal.asset.ownerKey }}</p>
             <template v-if="assetReviewFor(m)">
               <p v-if="assetReviewFor(m)?.status === 'PREVIEWED'">新增独立素材 · 待人工确认</p>
@@ -28,48 +28,45 @@
               <div v-if="assetReviewFor(m)?.status === 'PREVIEWED'" class="turn-actions"><button type="button" :disabled="busy" @click="props.confirmAssetCreate?.(m.actionId || m.id)">确认新增素材</button><button type="button" :disabled="busy" @click="props.cancelAssetCreate?.(m.actionId || m.id)">取消</button></div>
               <p v-else-if="assetReviewFor(m)?.status === 'APPLYING'" role="status">正在新增素材…</p>
               <p v-else-if="assetReviewFor(m)?.status === 'UNCERTAIN'" class="warning" role="alert">{{ assetReviewFor(m)?.error }}</p>
-              <p v-else-if="assetReviewFor(m)?.status === 'PREPARING'" role="status">✓ 素材已新增 · 正在自动准备视觉草案…</p>
-              <p v-else-if="assetReviewFor(m)?.status === 'PREPARE_FAILED'" class="warning" role="alert">✓ 素材已新增 · 自动准备视觉草案失败：{{ assetReviewFor(m)?.prepareError }}</p>
-              <p v-else-if="assetReviewFor(m)?.status === 'READY'" class="success">✓ 已新增素材 · 视觉草案已准备，等待图片生成</p>
-              <div v-if="assetReviewFor(m)?.status === 'PREPARE_FAILED'" class="turn-actions"><button type="button" :disabled="busy" @click="props.retryAssetDraft?.(m.actionId || m.id)">重试视觉草案</button></div>
+              <p v-else-if="assetReviewFor(m)?.status === 'PREPARING'" role="status">✓ 素材已新增 · 正在自动准备图片…</p>
+              <p v-else-if="assetReviewFor(m)?.status === 'PREPARE_FAILED'" class="warning" role="alert">✓ 素材已新增 · 自动准备图片未完成。{{ studioChromeText(assetReviewFor(m)?.prepareError,'准备图片未完成，可以重试。') }}</p>
+              <p v-else-if="assetReviewFor(m)?.status === 'READY'" class="success">✓ 已新增素材 · 正在准备图片</p>
+              <div v-if="assetReviewFor(m)?.status === 'PREPARE_FAILED'" class="turn-actions"><button type="button" :disabled="busy" @click="props.retryAssetDraft?.(m.actionId || m.id)">重试准备</button></div>
             </template>
-            <div v-else class="turn-actions"><button type="button" :disabled="busy" @click="acceptStudioAction(m)">预览新增素材</button><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div>
+            <div v-else class="turn-actions"><StudioActionButton label="预览新增素材" working="正在准备预览…" :disabled="busy" :scope-key="projectId+':'+scriptId" :action="()=>acceptStudioAction(m)" /><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div>
           </template>
-          <template v-else><small>提案尚未应用；预览和人工确认后才会改变正式内容。</small><div v-if="!studioActionFor(m).handled" class="turn-actions"><button type="button" :disabled="busy" @click="acceptStudioAction(m)">接受修改并预览</button><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div><small v-else>已送入受控预览</small></template>
+          <template v-else><small>提案尚未应用；预览和人工确认后才会改变正式内容。</small><div v-if="!studioActionFor(m).handled" class="turn-actions"><StudioActionButton label="接受修改并预览" working="正在准备预览…" :disabled="busy" :scope-key="projectId+':'+scriptId" :action="()=>acceptStudioAction(m)" /><button type="button" @click="focusComposer">继续调整</button><button type="button" @click="$emit('studio-professional')">专业精修 ↗</button></div><small v-else>已送入受控预览</small></template>
         </div>
         <div v-for="a in m.attachments || []" :key="a.id" class="attachment">
-          <img v-if="imageUrls[a.id]" :src="imageUrls[a.id]" :alt="a.name" />
+          <img v-if="imageUrls[a.id]" :src="imageUrls[a.id]" :alt="a.name" class="review-image" tabindex="0" role="button" :aria-label="`查看${a.name}`" @click="openAttachment(m,a.id)" @keydown.enter="openAttachment(m,a.id)" />
           <span>{{ a.name }} · 对话参考</span>
           <small v-if="a.references?.length" class="accepted">已确认：{{ a.references.map(r => referenceLabel(r.targetType)).join("、") }}</small>
           <div v-if="!studioMode" class="reference-actions"><select v-model="referenceChoices[a.id]" :aria-label="`图片 ${a.name} 的用途`"><option value="">选择图片用途…</option><option value="PROJECT_REFERENCE">加入项目参考</option><option value="ASSET_BIBLE">加入素材圣经参考</option><option v-if="selected?.type === 'ASSET'" value="BIND_SELECTED_ASSET">关联选中素材作参考</option><option v-if="selected?.type === 'ASSET'" value="PRODUCTION_ASSET">上传为选中素材的正式图片</option><option v-if="selected?.type === 'SHOT'" value="SHOT_REFERENCE">用作选中镜头参考</option></select><button :disabled="busy || !referenceChoices[a.id]" @click="previewReference(a.id)">预览</button></div>
         </div>
         <div v-if="m.role === 'user' && m.attachments?.length && !m.id.startsWith('local-user:')" class="vision-actions"><small v-if="!visionConfigured">图片已保存为对话参考；视觉模型未配置，暂时无法分析。</small><button v-if="!visionConfigured && !studioMode" type="button" @click="showVisionSettings=true">配置视觉模型</button><button type="button" :disabled="busy || !visionConfigured" @click="reanalyze(m.id)">重新分析这条消息</button></div>
+        <template v-if="studioMode">
+          <StudioCandidateView v-for="candidate in currentCandidatesFor(m)" :key="candidate.id" :candidate="candidate" :src="candidateUrls[candidate.id]" :preview="candidatePreview?.jobId===candidate.id ? candidatePreview : null" :busy="busy" :action="feedback.state(candidate.id)" :now="now" @open="openCandidate(candidate)" @preview="previewImageCandidate(candidate)" @accept="acceptImageCandidate" @cancel="candidatePreview=null" @continue="continueImageCandidate(candidate)" @reject="rejectImageCandidate(candidate)" />
+          <details v-if="olderCandidatesFor(m).length" class="candidate-history" @toggle="expandHistory($event,olderCandidatesFor(m))"><summary>历史版本（{{ olderCandidatesFor(m).length }}）</summary><template v-if="historyOpen(m.id)"><StudioCandidateView v-for="candidate in olderCandidatesFor(m)" :key="candidate.id" :candidate="candidate" :src="candidateUrls[candidate.id]" :preview="candidatePreview?.jobId===candidate.id ? candidatePreview : null" :busy="busy" :action="feedback.state(candidate.id)" :now="now" @open="openCandidate(candidate)" @preview="previewImageCandidate(candidate)" @accept="acceptImageCandidate" @cancel="candidatePreview=null" @continue="continueImageCandidate(candidate)" @reject="rejectImageCandidate(candidate)" /></template></details>
+        </template>
       </div>
-    </div>
-    <section v-if="studioMode && imageCandidates.length" class="image-candidates" aria-label="图片候选">
-      <article v-for="candidate in imageCandidates" :key="candidate.id" class="image-candidate">
-        <strong>{{ candidate.assetName || "素材" }} · 新候选</strong>
-        <p v-if="['QUEUED','RUNNING'].includes(candidate.status)" role="status">正在准备新的候选图片…现有资产未替换。</p>
-        <img v-if="candidateUrls[candidate.id]" :src="candidateUrls[candidate.id]" :alt="candidate.canonicalKey+' 图片候选'" />
-        <p v-if="candidate.status==='FAILED'" class="error">{{ candidate.errorMessage }}</p>
-        <p v-if="candidate.status==='STALE'" class="warning">素材已变化，这张候选仅保留作历史参考。</p>
-        <small v-if="candidate.decision==='ACCEPTED'" class="accepted">已确认为素材参考</small>
-        <small v-else-if="candidate.decision==='REJECTED'">已放弃</small>
-        <div v-if="candidate.status==='SUCCEEDED' && candidate.decision!=='REJECTED'" class="turn-actions"><button v-if="candidate.decision!=='ACCEPTED'" :disabled="busy" @click="previewImageCandidate(candidate)">采用此版本</button><button :disabled="busy" @click="continueImageCandidate(candidate)">继续修改</button><button v-if="candidate.decision!=='ACCEPTED'" :disabled="busy" @click="rejectImageCandidate(candidate)">放弃</button></div>
-      </article>
-      <p v-if="editingCandidate" class="context">继续修改上一张候选；输入你的调整要求即可。<button @click="editingCandidate=null">返回当前素材</button></p>
-      <div v-if="candidatePreview" class="confirm-reference"><strong>确认采用候选</strong><p>{{ candidatePreview.notice }}</p><button :disabled="busy" @click="acceptImageCandidate">确认采用</button><button @click="candidatePreview=null">取消</button></div>
+    <section v-if="studioMode && detachedCandidates.length" class="automatic-turn" aria-label="素材图片结果">
+      <small class="turn-label">Project Agent · 图片已随项目保留</small>
+      <StudioCandidateView v-for="candidate in detachedCandidates.filter(isCurrentCandidate)" :key="candidate.id" :candidate="candidate" :src="candidateUrls[candidate.id]" :preview="candidatePreview?.jobId===candidate.id ? candidatePreview : null" :busy="busy" :action="feedback.state(candidate.id)" :now="now" @open="openCandidate(candidate)" @preview="previewImageCandidate(candidate)" @accept="acceptImageCandidate" @cancel="candidatePreview=null" @continue="continueImageCandidate(candidate)" @reject="rejectImageCandidate(candidate)" />
+      <details v-if="detachedCandidates.some(c=>!isCurrentCandidate(c))" class="candidate-history" @toggle="expandHistory($event,detachedCandidates.filter(c=>!isCurrentCandidate(c)))"><summary>历史版本（{{ detachedCandidates.filter(c=>!isCurrentCandidate(c)).length }}）</summary><template v-if="historyOpen('detached')"><StudioCandidateView v-for="candidate in detachedCandidates.filter(c=>!isCurrentCandidate(c))" :key="candidate.id" :candidate="candidate" :src="candidateUrls[candidate.id]" :preview="candidatePreview?.jobId===candidate.id ? candidatePreview : null" :busy="busy" :action="feedback.state(candidate.id)" :now="now" @open="openCandidate(candidate)" @preview="previewImageCandidate(candidate)" @accept="acceptImageCandidate" @cancel="candidatePreview=null" @continue="continueImageCandidate(candidate)" @reject="rejectImageCandidate(candidate)" /></template></details>
     </section>
-    <div v-if="baselinePreview" class="confirm-reference" aria-label="确认图片基准"><strong>{{ baselinePreview.assetName }} · 当前待确认图片</strong><img v-if="imageUrls[baselinePreview.attachmentId]" :src="imageUrls[baselinePreview.attachmentId]" :alt="baselinePreview.assetName" /><p>{{ baselinePreview.notice }}</p><p v-if="!imageUrls[baselinePreview.attachmentId]" class="warning">图片尚未加载，暂不能确认使用。</p><button :disabled="busy || !imageUrls[baselinePreview.attachmentId]" @click="confirmBaseline">确认使用</button><button :disabled="busy" @click="baselinePreview=null">取消</button></div>
-    <p v-if="studioMode && editingCandidate" class="continuing">正在继续修改此版本 <button @click="editingCandidate=null">回到基准图</button></p>
+    <div v-if="baselinePreview" class="confirm-reference" aria-label="确认图片基准"><strong>{{ baselinePreview.assetName }} · 当前待确认图片</strong><img v-if="imageUrls[baselinePreview.attachmentId]" :src="imageUrls[baselinePreview.attachmentId]" :alt="baselinePreview.assetName" class="review-image" role="button" tabindex="0" @click="openBaseline" @keydown.enter="openBaseline" /><p>确认后将使用这张图片作为当前版本，旧版本仍保留。</p><p v-if="!imageUrls[baselinePreview.attachmentId]" class="warning">图片尚未加载，暂不能确认使用。</p><button :disabled="busy || !imageUrls[baselinePreview.attachmentId]" :data-phase="feedback.state('baseline').phase" @click="confirmBaseline">{{ feedback.state('baseline').phase==='WORKING'?'正在确认…':'确认使用' }}</button><button :disabled="busy" @click="baselinePreview=null">取消</button><p v-if="feedback.state('baseline').phase==='FAILURE'" role="alert">{{ feedback.state('baseline').error }}</p></div>
+    <p v-if="studioMode && editingCandidate" class="continuing">正在继续修改此版本 <button @click="editingCandidate=null">回到当前版本</button></p>
     <div v-if="referencePreview" class="confirm-reference"><strong>确认图片用途</strong><p>{{ referencePreview.notice }}</p><button :disabled="busy" @click="applyReference">确认</button><button class="quiet" @click="referencePreview=null">取消</button></div>
-    <div v-if="error" class="error" role="alert">{{ error }}</div>
-    <form class="composer" @submit.prevent="send" @dragover.prevent @drop.prevent="onDrop">
+    <div v-if="error" class="error" role="alert">{{ studioMode?studioChromeText(error):error }}</div>
+    </div>
+    <div v-if="studioMode" class="composer-handle" role="separator" aria-label="调整输入区高度" aria-orientation="horizontal" :aria-valuenow="Math.round(composerSize)" :aria-valuemin="80" :aria-valuemax="Math.round(composerMax)" tabindex="0" @pointerdown="composerResize.pointerdown" @pointermove="composerResize.pointermove" @pointerup="composerResize.pointerup" @pointercancel="composerResize.pointercancel" @keydown="composerResize.keydown" @dblclick="composerResize.reset" />
+    <form class="composer" :style="studioMode?{height:composerSize+'px'}:undefined" @submit.prevent="send" @dragover.prevent @drop.prevent="onDrop">
       <textarea ref="composerInput" v-model="draft" rows="3" placeholder="和项目 Agent 讨论创意，或拖入图片…" @keydown.ctrl.enter.prevent="send" />
       <div v-if="pendingImages.length" class="pending-images"><span v-for="(file,i) in pendingImages" :key="`${file.name}-${i}`">{{ file.name }} <button type="button" :aria-label="`移除 ${file.name}`" @click="pendingImages.splice(i,1)">×</button></span></div>
-      <div class="compose-actions"><label class="attach" for="project-agent-image">＋ 图片<input id="project-agent-image" type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFiles" /></label><small>Ctrl + Enter</small><button :disabled="busy || (!draft.trim() && !pendingImages.length)">发送</button></div>
+      <div class="compose-actions"><label class="attach" for="project-agent-image">＋ 图片<input id="project-agent-image" type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFiles" /></label><small>Ctrl + Enter</small><button :disabled="busy || (!draft.trim() && !pendingImages.length)" :data-phase="busy?'WORKING':'IDLE'">{{ busy?'正在处理…':'发送' }}</button></div>
     </form>
     <t-dialog :visible="showVisionSettings" attach="body" width="680px" header="配置视觉分析模型" :footer="false" @close="closeVisionSettings"><ModelPresets :project-id="projectId" /><button type="button" @click="closeVisionSettings">完成并返回对话</button></t-dialog>
+    <StudioImageLightbox v-if="!sharedImages" :images="fallbackImages.group.value" :index="fallbackImages.index.value" @close="fallbackImages.close" @change="fallbackImages.index.value=$event" />
   </aside>
 </template>
 <script setup lang="ts">
@@ -81,12 +78,19 @@ import settingStore from "@/stores/setting";
 import ModelPresets from "@/components/ModelPresets.vue";
 import { useV04ProposalWorkspace } from "@/stores/v04ProposalWorkspace";
 import type { StudioAssetCreateCardState } from "./studioAssetCreateFlow";
+import StudioCandidateView from './StudioCandidateView.vue';
+import StudioActionButton from './StudioActionButton.vue';
+import StudioImageLightbox from './StudioImageLightbox.vue';
+import {createStudioImageReview,useStudioImageReview} from './studioImageReview';
+import {useStudioActionFeedback} from './studioActionFeedback';
+import {candidateTurnAnchor,composerHeight,formatStudioElapsed,studioAssistantMessageId,studioChromeText} from './studioTurnPresentation';
+import {useResizablePane} from './useResizablePane';
 type Attachment = { id: string; name: string; mimeType: string; references?: { targetType: string }[] };
 type Phase = "thinking" | "analyzing" | "answering" | "checking" | "failed" | "uncertain" | "complete";
 type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; actionId?: string; relatedUserMessageId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
 type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; parentCandidateId?: string; optionalDraft?: any; knownFailure?: string; persistedUserMessageId?: string };
 type Target = "brief" | "treatment" | "script";
-const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; reviewCandidateId?: string; scopeLabel?: string; acceptStudioProposal?: (action: any, actionId: string) => Promise<void>; assetCreateReview?: StudioAssetCreateCardState | null; confirmAssetCreate?: (actionId: string) => Promise<void>; cancelAssetCreate?: (actionId: string) => void; retryAssetDraft?: (actionId: string) => Promise<void> }>();
+const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; activityJobs?: any[]; imageBaselines?:any[]; reviewCandidateId?: string; scopeLabel?: string; acceptStudioProposal?: (action: any, actionId: string) => Promise<void>; assetCreateReview?: StudioAssetCreateCardState | null; confirmAssetCreate?: (actionId: string) => Promise<void>; cancelAssetCreate?: (actionId: string) => void; retryAssetDraft?: (actionId: string) => Promise<void> }>();
 const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void; (e: "studio-professional"): void }>();
 const proposalWorkspace = useV04ProposalWorkspace();
 const { themeSetting } = storeToRefs(settingStore());
@@ -98,6 +102,40 @@ const messages = computed(() => [...historyMessages.value.flatMap((m, index): Me
   return [m];
 }), ...localMessages.value]);
 const draft = ref(""), error = ref(""), busy = ref(false), feed = ref<HTMLElement | null>(null), composerInput = ref<HTMLTextAreaElement | null>(null);
+const imageCandidates=ref<any[]>([]),candidateUrls=ref<Record<string,string>>({}),editingCandidate=ref<string|null>(null),candidatePreview=ref<any>(null);
+const agentElement=ref<HTMLElement|null>(null),workspaceHeight=ref(600),composerSize=ref(140);
+const composerMax=computed(()=>Math.max(80,Math.min(420,workspaceHeight.value*.45)));
+const feedback=useStudioActionFeedback(),sharedImages=useStudioImageReview(),fallbackImages=createStudioImageReview(),reviewImages=sharedImages||fallbackImages;
+const now=ref(Date.now()),busyStartedAt=ref(Date.now()),completeUntil=ref(0),candidateAssistantIds=ref<Record<string,string>>({}),expandedHistory=ref<Record<string,boolean>>({});
+const lastActivityJob=ref<string|null>(null);
+let clock:ReturnType<typeof setInterval>|undefined,resizeObserver:ResizeObserver|undefined;
+const composerPreference='dreamstream.v04.agent-composer-height.v1';
+const composerResize=useResizablePane({value:composerSize,defaultValue:140,axis:'y',reverse:true,step:16,bounds:()=>({min:80,max:composerMax.value}),measure:event=>(agentElement.value?.getBoundingClientRect().bottom||window.innerHeight)-event.clientY});
+watch(composerSize,value=>{try{localStorage.setItem(composerPreference,String(value));}catch{/* Preferences do not affect request truth. */}});
+watch(busy,(value,previous)=>{if(value&&!previous)busyStartedAt.value=Date.now();});
+const activity=computed(()=>{const jobs=[...imageCandidates.value,...(props.activityJobs||[])].filter(j=>['QUEUED','RUNNING'].includes(j.status));
+ if(jobs.length){const job=jobs.find(j=>j.status==='RUNNING')||jobs[0];return {running:true,jobId:job.id,label:`${job.status==='RUNNING'?'正在生成图片':'等待图片生成'} · ${formatStudioElapsed(now.value-(job.startedAt||job.createdAt||now.value))}`};}
+ if(busy.value)return {running:true,jobId:null,label:`正在处理你的要求 · ${formatStudioElapsed(now.value-busyStartedAt.value)}`};
+ const last=[...imageCandidates.value,...(props.activityJobs||[])].find(j=>j.id===lastActivityJob.value);
+ if(last?.status==='FAILED'||Object.values(feedback.states).some(s=>s.phase==='FAILURE')||localMessages.value.at(-1)?.phase==='failed')return {running:false,jobId:null,label:'本次未完成'};
+ if(localMessages.value.at(-1)?.phase==='uncertain')return {running:false,jobId:null,label:'结果待确认'};
+ return {running:false,jobId:null,label:now.value<completeUntil.value?'✓ 已完成':'协作中'};});
+watch(()=>activity.value.jobId,id=>{if(id)lastActivityJob.value=id;});
+watch(()=>activity.value.running,(value,previous)=>{if(previous&&!value)completeUntil.value=Date.now()+5000;});
+function anchor(c:any){return candidateTurnAnchor(c,messages.value,candidateAssistantIds.value[c.userMessageId]);}
+function isCurrentCandidate(c:any){return imageCandidates.value.find(other=>other.canonicalKey===c.canonicalKey)?.id===c.id;}
+watch(()=>props.imageBaselines,()=>{for(const c of imageCandidates.value)c.current=props.imageBaselines?.some(b=>b.sourceJobId===c.id);},{deep:true});
+function currentCandidatesFor(m:Message){return imageCandidates.value.filter(c=>anchor(c)===m.id&&isCurrentCandidate(c));}
+function olderCandidatesFor(m:Message){return imageCandidates.value.filter(c=>anchor(c)===m.id&&!isCurrentCandidate(c));}
+const detachedCandidates=computed(()=>imageCandidates.value.filter(c=>!anchor(c)&&(!c.automatic||props.selected?.type==='ASSET'&&props.selected.key===c.canonicalKey)));
+function historyOpen(id:string){return expandedHistory.value[id]===true;}
+function expandHistory(event:Event,candidates:any[]){const key=anchor(candidates[0]||{})||'detached';expandedHistory.value[key]=(event.target as HTMLDetailsElement).open;if(expandedHistory.value[key])void loadCandidateImages(candidates);}
+function turnContent(m:Message){const c=imageCandidates.value.find(c=>anchor(c)===m.id);if(m.role==='assistant'&&c){if(c.status==='SUCCEEDED')return '新的图片版本已完成。你可以放大查看、继续修改或采用；当前版本不会自动替换。';if(c.status==='FAILED')return '这次图片没有完成，当前版本仍保留。';if(c.status==='STALE')return '素材已经变化，这次结果仅作为历史参考保留。';}return m.content;}
+function openAttachment(m:Message,id:string){const images=(m.attachments||[]).filter(a=>imageUrls.value[a.id]).map(a=>({id:a.id,src:imageUrls.value[a.id],label:a.name}));reviewImages.open(`conversation:${props.projectId}:${m.id}`,images,images.findIndex(a=>a.id===id));}
+function openBaseline(){const p=baselinePreview.value;if(p&&imageUrls.value[p.attachmentId])reviewImages.open(`baseline:${props.projectId}:${p.canonicalKey}`,[{id:p.attachmentId,src:imageUrls.value[p.attachmentId],label:p.assetName+' · 当前待确认图片'}]);}
+async function openCandidate(c:any){const own=generation;const group=imageCandidates.value.filter(other=>other.canonicalKey===c.canonicalKey&&other.outputs?.[0]&&['SUCCEEDED','STALE'].includes(other.status));await loadCandidateImages([c]);if(own!==generation)return;
+ // Only already-visible history belongs in the navigation group; unopened high-resolution history stays unloaded.
+ const images=group.filter(other=>candidateUrls.value[other.id]).map(other=>({id:other.id,src:candidateUrls.value[other.id],label:(other.assetName||'素材')+' · 图片版本',candidateId:other.id}));reviewImages.open(`candidate:${props.projectId}:${props.scriptId}:${c.canonicalKey}`,images,images.findIndex(i=>i.id===c.id));}
 function focusComposer() { composerInput.value?.focus(); }
 function setInstruction(text:string){draft.value=text;focusComposer();}
 defineExpose({ focusComposer, setInstruction });
@@ -106,10 +144,10 @@ function assetReviewFor(m: Message) { return props.assetCreateReview?.actionId =
 async function acceptStudioAction(m: Message) {
   const entry = studioActionFor(m);
   if (!entry || (entry.handled && entry.action.targetType !== "ASSET_CREATE") || !props.acceptStudioProposal || busy.value) return;
-  busy.value = true; error.value = "";
-  try { await props.acceptStudioProposal(entry.action, m.actionId || m.id); entry.handled = true; }
-  catch (e: any) { error.value = e?.message || "受控提案预览失败"; }
-  finally { busy.value = false; }
+  const own=generation;busy.value = true; error.value = "";
+  try { await props.acceptStudioProposal(entry.action, m.actionId || m.id); if(own===generation)entry.handled = true; }
+  catch (e: any) { if(own===generation)error.value = "方案预览未完成，请稍后重试。";return false; }
+  finally { if(own===generation)busy.value = false; }
 }
 const pendingImages = ref<File[]>([]), imageUrls = ref<Record<string,string>>({}), referenceChoices = ref<Record<string,string>>({}), referencePreview = ref<any>(null);
 const visionConfigured = ref(true), showVisionSettings = ref(false);
@@ -159,20 +197,26 @@ function addFiles(files: FileList | File[]) {
 function onFiles(event: Event) { const input = event.target as HTMLInputElement; if (input.files) addFiles(input.files); input.value = ""; }
 function onDrop(event: DragEvent) { if (event.dataTransfer?.files) addFiles(event.dataTransfer.files); }
 function asDataUrl(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); }); }
-watch(()=>props.selected?.key,()=>{editingCandidate.value=null;});
+watch(()=>props.selected?.key,()=>{editingCandidate.value=null;candidatePreview.value=null;expandedHistory.value={};if(!sharedImages)reviewImages.close();void loadVisibleCandidateImages();});
 const baselinePreview=ref<any>(null);
-const imageCandidates=ref<any[]>([]),candidateUrls=ref<Record<string,string>>({}),editingCandidate=ref<string|null>(null),candidatePreview=ref<any>(null);
 let candidatePoll:ReturnType<typeof setInterval>|undefined;
 function clearCandidateImages(){for(const url of Object.values(candidateUrls.value))URL.revokeObjectURL(url);candidateUrls.value={};}
-async function loadImageCandidates(){if(!props.studioMode||!props.scriptId)return;const own=generation;try{const result:any=await axios.post('/v04/studio/image-edit/candidates',{projectId:props.projectId,scriptId:props.scriptId});if(own!==generation)return;imageCandidates.value=result.data;for(const c of result.data){if(candidateUrls.value[c.id]||!c.outputs?.[0])continue;const blob:Blob=await axios.get('/v04/studio/artifact/'+props.projectId+'/'+c.outputs[0].artifactId,{responseType:'blob'});if(own===generation)candidateUrls.value[c.id]=URL.createObjectURL(blob);}}catch{/* Reconnect preserves candidate history. */}}
-async function confirmBaseline(){const own=generation,p=baselinePreview.value;if(!p||busy.value)return;busy.value=true;try{const {projectId,scriptId,canonicalKey,attachmentId,role,previewHash}=p;await axios.post('/v04/studio/image-baseline/confirm',{projectId,scriptId,canonicalKey,attachmentId,role,previewHash});if(own===generation){baselinePreview.value=null;editingCandidate.value=null;await load();emit('production-asset-applied');}}catch(e:any){if(own===generation)error.value=e?.message||'基准确认失败，旧图片仍保留';}finally{if(own===generation)busy.value=false;}}
-function continueImageCandidate(c:any){editingCandidate.value=c.id;draft.value='继续修改 '+c.canonicalKey+'：';focusComposer();}
-async function previewImageCandidate(c:any){const own=generation;busy.value=true;try{const r:any=await axios.post('/v04/studio/image-edit/preview',{projectId:props.projectId,scriptId:props.scriptId,jobId:c.id});if(own===generation)candidatePreview.value={...r.data,jobId:c.id};}catch(e:any){if(own===generation)error.value=e?.message||'候选预览失败';}finally{if(own===generation)busy.value=false;}}
-async function acceptImageCandidate(){const own=generation,p=candidatePreview.value;if(!p||busy.value)return;busy.value=true;try{await axios.post('/v04/studio/image-edit/accept',{projectId:props.projectId,scriptId:props.scriptId,jobId:p.jobId,previewHash:p.previewHash});if(own===generation){candidatePreview.value=null;editingCandidate.value=null;await loadImageCandidates();emit('production-asset-applied');}}catch(e:any){if(own===generation)error.value=e?.message||'采用候选失败';}finally{if(own===generation)busy.value=false;}}
-async function rejectImageCandidate(c:any){const own=generation;busy.value=true;try{await axios.post('/v04/studio/image-edit/reject',{projectId:props.projectId,scriptId:props.scriptId,jobId:c.id});if(own===generation){if(editingCandidate.value===c.id)editingCandidate.value=null;await loadImageCandidates();}}catch(e:any){if(own===generation)error.value=e?.message||'放弃候选失败';}finally{if(own===generation)busy.value=false;}}
+let candidateLoading=false;
+async function loadCandidateImages(candidates:any[]){const own=generation,projectId=props.projectId;for(const c of candidates){if(candidateUrls.value[c.id]||!c.outputs?.[0])continue;try{const blob:Blob=await axios.get('/v04/studio/artifact/'+projectId+'/'+c.outputs[0].artifactId,{responseType:'blob'});if(own===generation)candidateUrls.value[c.id]=URL.createObjectURL(blob);}catch{/* Retain the result identity even if its image is temporarily unavailable. */}}}
+async function loadVisibleCandidateImages(){await loadCandidateImages(imageCandidates.value.filter(c=>isCurrentCandidate(c)&&(!c.automatic||props.selected?.type==='ASSET'&&props.selected.key===c.canonicalKey)));}
+async function loadImageCandidates(){if(!props.studioMode||!props.scriptId||candidateLoading)return;const own=generation;candidateLoading=true;try{const result:any=await axios.post('/v04/studio/image-edit/candidates',{projectId:props.projectId,scriptId:props.scriptId});if(own!==generation)return;imageCandidates.value=result.data.map((c:any)=>({...c,current:props.imageBaselines?.some(b=>b.sourceJobId===c.id)}));
+ for(const c of result.data){if(c.userMessageId&&!candidateAssistantIds.value[c.userMessageId]){const id=await studioAssistantMessageId(c.userMessageId);if(own!==generation)return;candidateAssistantIds.value[c.userMessageId]=id;}}
+ await loadVisibleCandidateImages();}catch{/* Reconnect preserves candidate history. */}finally{if(own===generation)candidateLoading=false;}}
+async function confirmBaseline(){const own=generation,p=baselinePreview.value;if(!p||busy.value)return;busy.value=true;await feedback.run('baseline','正在确认…','已使用',async()=>{const {projectId,scriptId,canonicalKey,attachmentId,role,previewHash}=p;await axios.post('/v04/studio/image-baseline/confirm',{projectId,scriptId,canonicalKey,attachmentId,role,previewHash});if(own===generation){baselinePreview.value=null;editingCandidate.value=null;await load();emit('production-asset-applied');}},'本次确认未完成，旧图片仍可查看；请检查状态后重试。');if(own===generation)busy.value=false;}
+function continueImageCandidate(c:any){editingCandidate.value=c.id;draft.value='';focusComposer();void feedback.run(c.id,'正在进入修改…','已进入修改',async()=>{await nextTick();focusComposer();});}
+async function previewImageCandidate(c:any){if(busy.value)return;const own=generation;busy.value=true;await feedback.run(c.id,'正在准备确认…','等待确认',async()=>{const r:any=await axios.post('/v04/studio/image-edit/preview',{projectId:props.projectId,scriptId:props.scriptId,jobId:c.id});if(own===generation)candidatePreview.value={...r.data,jobId:c.id};},'采用预览未完成，当前版本没有改变，可以重试。');if(own===generation)busy.value=false;}
+async function acceptImageCandidate(){const own=generation,p=candidatePreview.value;if(!p||busy.value)return;busy.value=true;await feedback.run(p.jobId,'正在采用…','当前版本',async()=>{await axios.post('/v04/studio/image-edit/accept',{projectId:props.projectId,scriptId:props.scriptId,jobId:p.jobId,previewHash:p.previewHash});if(own===generation){candidatePreview.value=null;editingCandidate.value=null;await loadImageCandidates();localMessages.value.push({id:`adopt:${p.jobId}:${Date.now()}`,role:'assistant',content:'已经采用这个版本。后续修改会从这里继续。'});emit('production-asset-applied');}},'这次采用结果未确认，旧版本仍保留；请检查最新状态后重试。');if(own===generation)busy.value=false;}
+async function rejectImageCandidate(c:any){if(busy.value)return;const own=generation;busy.value=true;await feedback.run(c.id,'正在处理…','已放弃',async()=>{await axios.post('/v04/studio/image-edit/reject',{projectId:props.projectId,scriptId:props.scriptId,jobId:c.id});if(own===generation){if(editingCandidate.value===c.id)editingCandidate.value=null;await loadImageCandidates();}},'放弃操作未确认，可以检查状态后重试。');if(own===generation)busy.value=false;}
 async function finishStudioResponse(request: Submission, response: any) {
   if (request.generation !== generation) return;
   const agent = localAgent(request.id);
+  if(agent&&response.data.userMessageId)agent.relatedUserMessageId=response.data.userMessageId;
+  if(response.data.userMessageId&&response.data.assistantMessageId)candidateAssistantIds.value[response.data.userMessageId]=response.data.assistantMessageId;
   if(response.data.baselinePreview){baselinePreview.value=response.data.baselinePreview;editingCandidate.value=null;}
   if(response.data.candidatePreview)candidatePreview.value=response.data.candidatePreview;
   if(response.data.imageCandidate||response.data.mode==='ASSET_IMAGE_REVIEW')await loadImageCandidates();
@@ -302,9 +346,10 @@ async function retryRequest(requestId: string) {
 async function checkStatus(requestId: string) {
   const request = submissions.get(requestId), agent = localAgent(requestId);
   if (!request || !agent || busy.value) return;
-  busy.value = true; agent.phase = "checking"; agent.error = undefined;
+  const own=generation;busy.value = true; agent.phase = "checking"; agent.error = undefined;
   try {
     const history = await load(false);
+    if(own!==generation)return;
     if (!history) { agent.phase = request.knownFailure ? "failed" : "uncertain"; agent.error = request.knownFailure ? `${request.knownFailure}；暂时无法读取服务器对话。` : "暂时无法读取服务器对话，请稍后再检查；不要重复发送。"; return; }
     const matchingUserIndexes = history.flatMap((m, index) => !request.baselineIds.has(m.id) && m.role === "user" && m.content === (request.content || "[图片参考]") && Number(m.createTime) >= request.startedAt - 1000 && request.attachmentIds.every(id => m.attachments?.some(a => a.id === id)) ? [index] : []);
     if (matchingUserIndexes.length === 1) {
@@ -314,7 +359,7 @@ async function checkStatus(requestId: string) {
       agent.phase = "failed"; agent.error = request.knownFailure ? `${request.knownFailure}；消息已保留在对话中。` : "服务器已收到这条消息，但尚未看到完整回复。请稍后检查状态，避免重复发送。";
     } else { agent.phase = "uncertain"; agent.error = matchingUserIndexes.length > 1 ? "服务器记录中有多条相同消息，暂时无法确认哪条对应本次请求；请勿重复发送。" : "历史中尚未找到这条消息；原请求可能仍在处理。请稍后再检查，不要重复发送。"; }
     agent.retryable = false; agent.checkable = true;
-  } finally { busy.value = false; scrollToLatest(); }
+  } finally { if(own===generation){busy.value = false; scrollToLatest();} }
 }
 function closeVisionSettings() { showVisionSettings.value = false; void load(false); }
 async function reanalyze(userMessageId: string) {
@@ -338,11 +383,11 @@ async function reanalyze(userMessageId: string) {
   } finally { if (own === generation) busy.value = false; scrollToLatest(); }
 }
 async function suggest(target: Target) {
-  if (busy.value || !window.confirm("生成创意提案会调用当前项目配置的文本模型，可能产生费用。继续吗？")) return;
+  if (busy.value || !window.confirm("生成创意提案会调用当前项目配置的文本模型，可能产生费用。继续吗？")) return null;
   const own = generation; busy.value = true; error.value = "";
   try { const response: any = await axios.post("/v04/agent/creative-proposal", { projectId: props.projectId, scriptId: props.scriptId, target, instruction: draft.value.trim() }); if (own === generation) emit("creative-candidate", response.data); }
-  catch (e: any) { if (own === generation) error.value = e?.message || "提案生成失败"; }
-  finally { busy.value = false; }
+  catch (e: any) { if (own === generation) error.value = "方案生成未完成，请稍后重试。";return false; }
+  finally { if(own===generation)busy.value = false; }
 }
 const referenceLabel = (value: string) => ({ PROJECT_REFERENCE: "项目参考", ASSET_BIBLE: "素材圣经参考", BIND_SELECTED_ASSET: "素材参考", SHOT_REFERENCE: "镜头参考", PRODUCTION_ASSET: "正式素材" } as Record<string,string>)[value] || value;
 async function previewReference(attachmentId: string) {
@@ -360,12 +405,11 @@ async function applyReference() {
   catch (e: any) { error.value = e?.message || "图片用途确认失败"; }
   finally { busy.value = false; }
 }
-onMounted(() => { void load(); if(props.studioMode){void loadImageCandidates();candidatePoll=setInterval(()=>void loadImageCandidates(),2500);} });
-watch(() => [props.projectId, props.scriptId], () => { generation++; historyGeneration++; clearImages(); clearCandidateImages();imageCandidates.value=[];editingCandidate.value=null;candidatePreview.value=null;baselinePreview.value=null; historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; showVisionSettings.value = false; void load();void loadImageCandidates(); });
-onBeforeUnmount(() => { generation++; clearImages();if(candidatePoll)clearInterval(candidatePoll);clearCandidateImages(); });
+onMounted(() => { void load();clock=setInterval(()=>now.value=Date.now(),1000);if(props.studioMode){workspaceHeight.value=agentElement.value?.clientHeight||600;try{composerSize.value=composerHeight(localStorage.getItem(composerPreference),workspaceHeight.value);}catch{composerSize.value=composerHeight(140,workspaceHeight.value);}if(typeof ResizeObserver!=='undefined'){resizeObserver=new ResizeObserver(()=>{workspaceHeight.value=agentElement.value?.clientHeight||600;composerResize.clamp();});if(agentElement.value)resizeObserver.observe(agentElement.value);}void loadImageCandidates();candidatePoll=setInterval(()=>void loadImageCandidates(),2500);} });
+watch(() => [props.projectId, props.scriptId], () => { generation++; historyGeneration++;feedback.reset();reviewImages.close();composerResize.cancel();expandedHistory.value={};candidateAssistantIds.value={};completeUntil.value=0;lastActivityJob.value=null;candidateLoading=false;clearImages(); clearCandidateImages();imageCandidates.value=[];editingCandidate.value=null;candidatePreview.value=null;baselinePreview.value=null; historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; showVisionSettings.value = false; void load();void loadImageCandidates(); });
+onBeforeUnmount(() => { generation++;feedback.reset();reviewImages.close();resizeObserver?.disconnect();if(clock)clearInterval(clock);clearImages();if(candidatePoll)clearInterval(candidatePoll);clearCandidateImages(); });
 </script>
 <style scoped>
-.image-candidates{max-height:38vh;overflow:auto;border-top:1px solid var(--td-component-border);padding:.7rem}.image-candidate{padding:.5rem 0}.image-candidate img{display:block;max-width:100%;max-height:220px;width:auto;height:auto;object-fit:contain;margin:.5rem auto}.image-candidate strong{font-size:.85rem}
 .agent{--user-ink:color-mix(in srgb,#779dce 72%,var(--td-text-color-primary));--agent-ink:color-mix(in srgb,#a792c1 72%,var(--td-text-color-primary));height:100%;min-height:0;display:flex;flex-direction:column;border-left:1px solid var(--td-component-border);background:var(--td-bg-color-container);color:var(--td-text-color-primary)}
 header{display:flex;align-items:center;justify-content:space-between;padding:1.25rem 1.2rem .75rem}header strong{font-size:1.05rem;letter-spacing:-.02em}header small{display:block;margin-top:.2rem;color:var(--td-text-color-secondary)}.status{font-size:.73rem;color:var(--td-brand-color);border:1px solid var(--td-component-border);padding:.25rem .55rem;border-radius:999px}.context{margin:0;padding:.35rem 1.2rem .8rem;color:var(--td-text-color-secondary);font-size:.77rem;border-bottom:1px solid var(--td-component-border)}
 .feed{min-height:0;flex:1;overflow-y:auto;padding:1rem 1.2rem;scrollbar-width:thin}.empty{color:var(--td-text-color-secondary);line-height:1.6}
@@ -377,7 +421,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:1.2
 .attachment{margin:.5rem 0;padding:.35rem 0;border-top:1px solid var(--td-component-border)}.attachment img{display:block;max-width:100%;max-height:12rem;object-fit:contain;border-radius:.35rem;margin:.35rem 0}.attachment span,.attachment small{display:block;font-size:.72rem}.attachment .accepted{color:var(--td-success-color)}.reference-actions{display:flex;gap:.3rem;margin-top:.4rem}.reference-actions select{min-width:0;flex:1;background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);border-radius:.3rem;font-size:.72rem}
 .vision-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;margin-top:.5rem}.vision-actions small{width:100%;color:var(--td-text-color-secondary);line-height:1.45}.vision-actions button{background:transparent;color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.72rem;padding:.3rem .5rem}
 .confirm-reference{padding:.7rem 1.2rem;border-top:1px solid var(--td-component-border);font-size:.79rem}.confirm-reference img{display:block;max-width:100%;max-height:220px;width:auto;height:auto;object-fit:contain}.confirm-reference p{color:var(--td-text-color-secondary);line-height:1.45}.confirm-reference button{margin-right:.4rem}.attach{font-size:.78rem;cursor:pointer;color:var(--td-brand-color)}.attach input{display:none}.pending-images{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem}.pending-images span{font-size:.7rem;background:var(--td-bg-color-secondarycontainer);border-radius:.3rem;padding:.25rem}.pending-images button{background:none;border:0;color:var(--td-text-color-primary);cursor:pointer}
-.agent{min-width:0}.composer{flex-shrink:0;min-height:0}.composer textarea{height:86px;min-height:80px;max-height:min(250px,38vh)}.more-actions{padding:.25rem 1.2rem;border-bottom:1px solid var(--td-component-border);color:var(--td-text-color-secondary);font-size:.75rem}.more-actions summary{cursor:pointer;padding:.25rem 0}.more-actions .quick-actions{padding:.5rem 0;border:0}.studio-proposal{margin:.85rem 0 .3rem;padding:.7rem .8rem;border:1px solid var(--td-component-border);border-radius:.5rem;background:var(--td-bg-color-secondarycontainer);font-size:.82rem}.studio-proposal strong{display:block;color:var(--td-text-color-primary)}.studio-proposal p{line-height:1.5;margin:.45rem 0}.studio-proposal small{color:var(--td-text-color-secondary)}.studio-proposal .turn-actions{flex-wrap:wrap}.studio-proposal button{background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.73rem;padding:.35rem .55rem}
-.agent.studio-agent header{padding:.55rem .9rem .35rem}.agent.studio-agent header small{display:none}.agent.studio-agent .context{padding:.25rem .9rem .45rem}.agent.studio-agent .more-actions{padding:.15rem .9rem}.agent.studio-agent .feed{padding:.6rem .9rem}.agent.studio-agent .composer{padding:.6rem .9rem}.agent.studio-agent .composer textarea{height:80px}
+.agent{min-width:0}.composer{flex-shrink:0;min-height:0}.more-actions{padding:.25rem 1.2rem;border-bottom:1px solid var(--td-component-border);color:var(--td-text-color-secondary);font-size:.75rem}.more-actions summary{cursor:pointer;padding:.25rem 0}.more-actions .quick-actions{padding:.5rem 0;border:0}.studio-proposal{margin:.85rem 0 .3rem;padding:.7rem 0;font-size:.82rem}.studio-proposal strong{display:block;color:var(--td-text-color-primary)}.studio-proposal p{line-height:1.5;margin:.45rem 0}.studio-proposal small{color:var(--td-text-color-secondary)}.studio-proposal .turn-actions{flex-wrap:wrap}.studio-proposal button{background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.73rem;padding:.35rem .55rem}
+.agent.studio-agent header{padding:.55rem .9rem .35rem}.agent.studio-agent header small{display:none}.agent.studio-agent .context{padding:.25rem .9rem .45rem}.agent.studio-agent .more-actions{padding:.15rem .9rem}.agent.studio-agent .feed{padding:.6rem .9rem}.agent.studio-agent .composer{padding:.6rem .9rem;box-sizing:border-box;display:flex;flex-direction:column;flex:none}.agent.studio-agent .composer textarea{flex:1;height:auto;min-height:20px;max-height:none;resize:none}.composer-handle{height:7px;flex:none;cursor:row-resize;touch-action:none;border-top:1px solid var(--td-component-border)}.composer-handle:hover,.composer-handle:focus-visible{background:var(--td-brand-color);outline:none}.agent.studio-agent .turn.assistant{border-left:0;padding-left:0;border-top:1px solid color-mix(in srgb,var(--agent-ink) 15%,transparent)}.candidate-history{margin:.6rem 0;color:var(--td-text-color-secondary)}.candidate-history summary{cursor:pointer}.automatic-turn{margin:1rem 0}.review-image{cursor:zoom-in}.studio-spinner{display:inline-block;width:.7em;height:.7em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:studio-spin 1s linear infinite;margin-right:.35rem}@keyframes studio-spin{to{transform:rotate(360deg)}}button:hover:not(:disabled){filter:brightness(1.15);outline:1px solid var(--td-brand-color)}button:active:not(:disabled){transform:translateY(1px)}button[data-phase=WORKING]{background:color-mix(in srgb,var(--td-brand-color) 14%,var(--td-bg-color-container));color:var(--td-brand-color)}@media(prefers-reduced-motion:reduce){.studio-spinner{animation:none}}
 .studio-proposal .warning{color:var(--td-warning-color)}.studio-proposal .success{color:var(--td-success-color)}
 </style>

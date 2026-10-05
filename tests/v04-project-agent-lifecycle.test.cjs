@@ -1,3 +1,4 @@
+const {loadVueSource}=require('./helpers/load-vue-source.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -32,7 +33,7 @@ function mount(t, post, props = {}) {
     if (id === '@/components/ModelPresets.vue') return { render: () => vue.h('div', 'Model Presets') };
     if (id === 'pinia') return { storeToRefs: () => ({ themeSetting: vue.ref({ mode: 'dark' }) }) };
     if (id === 'md-editor-v3') return { MdPreview: { props: ['modelValue'], template: '<div class="md-preview">{{ modelValue }}</div>' } };
-    return require(id);
+    if(id.startsWith('.'))return loadVueSource(path.resolve(path.dirname(file),id));return require(id);
   };
   new Function('require', 'module', 'exports', code)(requireMock, module, module.exports);
   const el = document.createElement('div'); document.body.append(el);
@@ -85,7 +86,7 @@ test('ASSET_CREATE preview and human confirm stay in the originating Agent propo
   assert.equal(confirmCalls, 1); assert.match(card.textContent, /正在新增素材/);
   assert.equal(panel.button('确认新增素材'), undefined, 'applying state cannot dispatch a second Apply');
   panel.setProps({ assetCreateReview: assetCreateReview('asset-proposal-1', { status: 'READY', canonicalKey: 'ACC-001' }) });
-  await settle(); assert.match(card.textContent, /已新增素材.*视觉草案已准备，等待图片生成/);
+  await settle(); assert.match(card.textContent, /已新增素材.*正在准备图片/);
 });
 
 test('duplicate warning, cancellation and review ownership remain scoped to the matching card', async t => {
@@ -125,9 +126,9 @@ test('asset identity success stays visible when draft preparation fails; retry i
   await settle();
   const card = panel.el.querySelector('.studio-proposal');
   assert.match(card.textContent, /素材已新增/);
-  assert.match(card.textContent, /自动准备视觉草案失败：文本模型不可用/);
+  assert.match(card.textContent, /自动准备图片未完成。文本模型不可用/);
   assert.equal(panel.button('确认新增素材'), undefined);
-  panel.button('重试视觉草案').click(); await settle(); assert.equal(retried, 1);
+  panel.button('重试准备').click(); await settle(); assert.equal(retried, 1);
 });
 
 test('Studio DISCUSS completes as an ordinary answer without a proposal card', async t => {
@@ -230,8 +231,8 @@ test('send immediately shows a distinct user turn and animated Agent turn, then 
   assert.equal(panel.el.querySelectorAll('.turn.user').length, 1);
   assert.match(panel.el.querySelector('.turn.user').textContent, /你.*视觉节奏/);
   assert.match(panel.el.querySelector('.turn.assistant [role="status"]').textContent, /Project Agent 正在思考/);
-  assert.ok(panel.button('发送').disabled, 'pending request blocks duplicate send');
-  panel.button('发送').click(); assert.equal(chatCalls, 1);
+  assert.ok(panel.el.querySelector('.compose-actions button').disabled, 'pending request blocks duplicate send');
+  panel.el.querySelector('.compose-actions button').click(); assert.equal(chatCalls, 1);
 
   chat.resolve({ data: { reply: '## 镜头节奏\n先慢后快。' } }); await settle();
   assert.match(panel.el.querySelector('.turn.assistant [role="status"]').textContent, /正在整理回答/);
@@ -383,5 +384,5 @@ test('quiet role colors and message widths distinguish user, Agent, progress, er
   assert.match(source, /\.turn-progress\{[^}]*--td-text-color-secondary/);
   assert.match(source, /\.turn-error\{[^}]*--td-error-color/);
   assert.match(source, /\.attachment \.accepted\{color:var\(--td-success-color\)/);
-  assert.match(source, /<MdPreview[^>]+:modelValue="m\.content"/);
+  assert.match(source, /<MdPreview[^>]+:modelValue="turnContent\(m\)"/);
 });
