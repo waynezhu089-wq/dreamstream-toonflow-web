@@ -21,6 +21,7 @@
           <p>尺度参照不加入图中；鲸鱼不因全片视觉母题而被改成 Dream Matter。保持单个完整资产。</p>
         </article>
       </div>
+      <section v-if="experiment.B.renderingBrief" class="rendering-brief"><h3>最终交给图片模型的 Director Rendering Brief</h3><p>{{experiment.B.renderedPrompt}}</p><p>从导演理解压缩为短视觉语言；原始剧情与 JSON 不直接交给图片模型。</p></section><p v-else>历史 raw adapter 实验；图片仍可查看，请重新编译新版输入。</p>
       <p>相同 seed {{experiment.sharedExecution.seed}} · {{experiment.sharedExecution.profile}} · {{experiment.sharedExecution.width}}×{{experiment.sharedExecution.height}}</p>
       <details><summary>查看冻结语义、prompt 与精确 workflow</summary><pre>{{JSON.stringify({A:experiment.A,B:experiment.B,evidence:experiment.evidence,sharedExecution:experiment.sharedExecution,workflows:experiment.workflows},null,2)}}</pre></details>
       <button :disabled="busy||experiment.status!=='COMPILED'" @click="confirmOpen=true">生成 A/B 对照图</button>

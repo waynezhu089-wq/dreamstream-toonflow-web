@@ -57,3 +57,7 @@ test('DIR032AH2 invalid binary response only reports read failure without changi
  const c=fixture('COMPLETED');c.execution={A:{status:'SUCCEEDED',artifact:{artifactId:'a'}},B:{status:'SUCCEEDED',artifact:{artifactId:'b'}}};const calls=[];
  const {el}=mount(t,async url=>{calls.push(url);return url.endsWith('/current')?{data:[c]}:{data:new Blob(['wrong wrapper'])};});await flush();assert.match(el.textContent,/实验图片读取失败，可刷新重试/);assert.match(el.textContent,/COMPLETED/);assert.equal(el.querySelector('img'),null);assert.ok(calls.every(x=>!x.endsWith('/render')));assert.equal(c.status,'COMPLETED');
 });
+test('DIR032AH3 final rendering brief is visible without raw JSON expansion; compile never renders',async t=>{
+ const c=fixture();c.B.renderingBrief={version:'director.rendering-brief.1'};c.B.renderedPrompt='Mature biological whale. Sublime colossus. No typography.';const calls=[];
+ const {el}=mount(t,async url=>{calls.push(url);return {data:url.endsWith('/current')?[]:c};});await flush();button(el,'编译鲸鱼').click();await flush();assert.match(el.querySelector('.rendering-brief').textContent,/Mature biological whale/);assert.match(el.textContent,/awe first/);assert.equal(el.querySelector('details').open,false);assert.ok(calls.every(x=>!x.endsWith('/render')));
+});
