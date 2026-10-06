@@ -58,6 +58,18 @@ const assetCreateReview = (actionId = 'asset-proposal-1', changes = {}) => ({ ac
     changes: [assetCreateAction.proposal] }, preview: { previewHash: 'hash', suggestions: [] },
   status: 'PREVIEWED', canonicalKey: null, error: '', prepareError: null, ...changes });
 
+test('DIRH1 Agent sends the current selection on each turn and never retains another asset/project target',async t=>{
+ const requests=[];const panel=mount(t,async(url,body)=>{
+  if(url.endsWith('/history'))return {data:{messages:requests.map((r,i)=>({id:'a'+(i+1),role:'assistant',content:'导演候选已准备；未改变图片'}))}};
+  if(url.endsWith('/candidates'))return {data:[]};
+  assert.equal(url,'/v04/agent/studio-turn');requests.push(JSON.parse(JSON.stringify(body)));
+  return {data:{mode:'DIRECTOR_PROPOSAL',reply:'导演候选已准备；未改变图片',directorProposal:{id:'proposal-'+requests.length},userMessageId:'u'+requests.length,assistantMessageId:'a'+requests.length}};
+ },{studioMode:true,selected:{type:'ASSET',key:'CHAR-003'}});
+ await settle();await panel.send('它不要太可爱。');assert.deepEqual(requests[0].context.selectedObject,{type:'ASSET',key:'CHAR-003'});assert.match(panel.el.textContent,/导演候选已准备/);
+ panel.setProps({selected:{type:'ASSET',key:'CHAR-002'}});await settle();await panel.send('再庄严一点');assert.equal(requests[1].context.selectedObject.key,'CHAR-002');
+ panel.setProps({projectId:8,scriptId:3,selected:null});await settle();await panel.send('帮我整理导演方向');assert.equal(requests[2].context.projectId,8);assert.equal(requests[2].context.selectedObject,null);
+});
+
 test('ASSET_CREATE preview and human confirm stay in the originating Agent proposal card', async t => {
   let panel, previewCalls = 0, confirmCalls = 0;
   panel = mount(t, async url => {

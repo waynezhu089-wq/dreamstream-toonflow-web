@@ -57,7 +57,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from "vue";
 import axios from "@/utils/axios";
-const props = defineProps<{ projectId: number; scriptId: number }>(),
+const props = defineProps<{ projectId: number; scriptId: number; selected?: { type: "PROJECT" | "ASSET" | "SHOT"; key: string } | null }>(),
   emit = defineEmits<{ (e: "accepted"): void }>();
 const accepted = ref<any>(null),
   proposal = ref<any>(null),
@@ -117,6 +117,7 @@ async function propose() {
     const r: any = await axios.post("/v04/director/propose", {
       ...scope(),
       userInstruction: instruction.value || "帮我整理整部影片的导演视觉方向",
+      selectedObject: props.selected ?? null,
       ...(proposal.value && proposal.value.status !== "STALE" ? { baseProposalId: proposal.value.id } : {}),
       ...(accepted.value?.status === "CURRENT" ? { baseDirectorVersion: accepted.value.directorVersion } : {}),
     });
