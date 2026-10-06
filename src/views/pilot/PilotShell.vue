@@ -27,6 +27,7 @@
         <div class="heading"><div><p class="eyebrow">{{ tabLabel }}</p><h1>{{ heading }}</h1></div></div>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <DirectorInspection v-if="tab==='director'" :project-id="state.project.id" :script-id="state.creative.scriptId" />
+        <DirectorAssetABPanel v-if="tab==='director'" :project-id="state.project.id" :script-id="state.creative.scriptId" />
         <OperationsConsole v-else-if="tab === 'operations'" :project-id="state.project.id" :script-id="state.creative.scriptId" />
         <template v-else-if="tab === 'overview'">
           <p class="intro">从左侧选择工作阶段。Project Agent 在每个阶段使用同一项目记忆；创意、决定、素材和生产结果各有明确来源。</p>
@@ -96,6 +97,7 @@ import AssetProposalReview from "./AssetProposalReview.vue";
 import VisualSpecPanel from "./VisualSpecPanel.vue";
 import OperationsConsole from './OperationsConsole.vue';
 import DirectorInspection from './DirectorInspection.vue';
+import DirectorAssetABPanel from './DirectorAssetABPanel.vue';
 import { handoffToProjectPage, type PilotHandoffTarget } from "./projectHandoff";
 import { appendCandidateForRequirement, linkRequirementToCandidate, assetCoveragePayload, prepareAssetExtractionProposal } from "./skillProposal";
 import { beginPilotAction, settlePilotAction, type PilotActionFeedback } from "./pilotActionFeedback";
