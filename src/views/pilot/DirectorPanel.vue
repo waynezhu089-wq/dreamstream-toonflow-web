@@ -72,9 +72,10 @@ let generation = 0,
 const refreshPending = ref(false),
   confirmCommand = ref<any>(null);
 const busy = computed(() => phase.value !== "IDLE"),
-  shown = computed(() => proposal.value || accepted.value),
+  shown = computed(() => activeProposal(proposal.value) || accepted.value),
   name = (key: string) => names.value.find((a) => a.canonicalKey === key)?.name || "素材";
 const scope = () => ({ projectId: props.projectId, scriptId: props.scriptId });
+function activeProposal(value: any) { return value && ["DRAFT", "PREVIEWED"].includes(value.status) ? value : null; }
 async function run(next: string, action: (token: number) => Promise<void>) {
   if (busy.value) return;
   const token = generation;
@@ -99,7 +100,7 @@ async function load(token: number) {
   const r: any = await axios.post("/v04/director/current", scope());
   if (token !== generation) return;
   accepted.value = r.data?.accepted || null;
-  proposal.value = r.data?.proposal || null;
+  proposal.value = activeProposal(r.data?.proposal);
   names.value = r.data?.assetNames || [];
 }
 async function reload() {
@@ -122,7 +123,7 @@ async function propose() {
       ...(accepted.value?.status === "CURRENT" ? { baseDirectorVersion: accepted.value.directorVersion } : {}),
     });
     if (token !== generation) return;
-    proposal.value = r.data;
+    proposal.value = activeProposal(r.data);
     preview.value = null;
     instruction.value = "";
   });

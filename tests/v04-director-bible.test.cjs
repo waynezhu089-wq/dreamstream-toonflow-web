@@ -20,3 +20,10 @@ test('DIRH1 Director review action carries the live selected object, including s
  let textarea=f.el.querySelector('textarea');textarea.value='再庄严一点';textarea.dispatchEvent(new Event('input',{bubbles:true}));button(f.el,'修改这版候选').click();await flush();assert.equal(f.calls.filter(c=>c.url.endsWith('/propose')).at(-1).body.selectedObject.key,'CHAR-003');
  f.props.selected={type:'ASSET',key:'CHAR-002'};await flush();textarea=f.el.querySelector('textarea');textarea.value='更像最后的升华';textarea.dispatchEvent(new Event('input',{bubbles:true}));button(f.el,'修改这版候选').click();await flush();assert.equal(f.calls.filter(c=>c.url.endsWith('/propose')).at(-1).body.selectedObject.key,'CHAR-002');
 });
+
+test('DIRH2 accepted version survives reload; superseded/stale historical proposals never expose candidate actions',async t=>{
+ const p=proposal(),accepted={...p,directorVersion:1,status:'CURRENT'};let next=null;
+ const f=mount(t,async url=>({data:url.endsWith('/current')?{accepted,proposal:next}:p}));await flush();assert.match(f.el.textContent,/当前导演版本 v1/);
+ for(const status of [null,'SUPERSEDED','CONFIRMED','STALE','REJECTED']){next=status?{...p,status}:null;button(f.el,'刷新方向').click();await flush();assert.match(f.el.textContent,/当前导演版本 v1/);for(const label of ['修改这版候选','采用视觉方向','放弃这版候选'])assert.equal(button(f.el,label),undefined);assert.doesNotMatch(f.el.textContent,/本次导演方向调整/);}
+ next={...p,status:'DRAFT'};button(f.el,'刷新方向').click();await flush();assert.ok(button(f.el,'采用视觉方向'));assert.ok(button(f.el,'修改这版候选'));
+});
