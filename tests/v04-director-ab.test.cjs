@@ -38,3 +38,12 @@ test('DIR032A Professional surface is separate from normal Studio generation',()
  const source=fs.readFileSync(file,'utf8');assert.doesNotMatch(source,/auto-assets\/reconcile|draft-image\/enqueue|image-edit\/accept/);
 });
 
+test('DIR032AH1 inherited and excluded DNA are visible without expanding raw audit JSON',async t=>{
+ const c=fixture();c.B.directorContext.assetVisualDNA={inherited:{artStyle:'cinematic realism',lightingLanguage:['blue environmental moonlight']},excluded:{materialLanguage:['Dream Matter particles'],recurringVisualMotifs:['boy reaching moon']},materialIdentity:'LIVING_BIOLOGICAL_CREATURE',projectionReasons:[]};
+ const {el}=mount(t,async()=>({data:[c]}));await flush();
+ assert.equal(el.querySelector('details').open,false);
+ assert.match(el.querySelector('.dna-inherited').textContent,/cinematic realism/);
+ assert.match(el.querySelector('.dna-excluded').textContent,/Dream Matter particles/);
+ assert.doesNotMatch(el.querySelector('.dna-inherited').textContent,/Dream Matter particles/);
+ assert.equal(el.querySelector('[role=dialog]'),null);
+});

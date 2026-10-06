@@ -15,6 +15,9 @@
           <p>叙事功能：{{context?.narrativeRole?.narrativeFunction}}</p><p>情绪：{{context?.narrativeRole?.emotionalRead}}</p>
           <p>尺度：{{context?.narrativeRole?.scaleFunction}}</p><p v-for="r in context?.relevantScaleRelations" :key="r.smaller+r.larger">{{r.smaller}} ≪ {{r.larger}}：{{r.requirement}}</p>
           <p>观众感受：{{context?.narrativeRole?.requiredAudiencePerception?.join('；')}}</p><p>禁止误读：{{context?.narrativeRole?.forbiddenInterpretations?.join('；')}}</p>
+          <section class="dna-inherited"><h5>继承的全片美术指导</h5><p v-if="!dnaLines(context?.assetVisualDNA?.inherited).length">当前已确认 Director 未配置可继承的全片 DNA；不补写示例内容。</p><p v-for="line in dnaLines(context?.assetVisualDNA?.inherited)" :key="line">{{line}}</p></section>
+          <section class="dna-excluded"><h5>不应用于鲸鱼本体</h5><p v-if="!dnaLines(context?.assetVisualDNA?.excluded).length">当前全片 DNA 没有待排除条目。</p><p v-for="line in dnaLines(context?.assetVisualDNA?.excluded)" :key="line">{{line}}</p></section>
+          <p v-if="context?.assetVisualDNA?.materialIdentity==='LIVING_BIOLOGICAL_CREATURE'">材质身份：真实生物体；蓝色仅作环境／照明影响，保留原有皮肤与配色。</p>
           <p>尺度参照不加入图中；鲸鱼不因全片视觉母题而被改成 Dream Matter。保持单个完整资产。</p>
         </article>
       </div>
@@ -50,6 +53,7 @@ const props=defineProps<{projectId:number;scriptId:number}>();
 const sides=['A','B'] as const,records=ref<any[]>([]),selectedId=ref(''),busy=ref(false),error=ref(''),confirmOpen=ref(false);
 const images=ref<Record<string,string>>({}),lightboxImages=ref<StudioReviewImage[]>([]),lightboxIndex=ref(0);
 const experiment=computed(()=>records.value.find(r=>r.id===selectedId.value)),context=computed(()=>experiment.value?.B.directorContext);
+function dnaLines(value:any):string[]{if(!value)return [];const labels:Record<string,string>={artStyle:'美术风格',colorLanguage:'环境色彩',lightingLanguage:'照明',realismLevel:'写实程度',atmosphere:'氛围',forbiddenStyleDrift:'风格边界',materialLanguage:'材质语言',motionLanguage:'运动语言',recurringVisualMotifs:'视觉母题'};return Object.entries(value).flatMap(([key,v])=>(Array.isArray(v)?v:v?[v]:[]).map(line=>`${labels[key]||key}：${line}`));}
 const dimensions=['巨物尺度感（较好者）','敬畏感（较好者）','是否过于可爱（较差者）','是否误变成怪兽（较差者）','是否符合故事鲸鱼（较好者）','整体美术契合（较好者）'];
 const conclusions=['CLEAR_WIN','PARTIAL_WIN','NO_IMPROVEMENT','REGRESSION'];
 const choices=ref(['','','','','','']),conclusion=ref(''),why=ref('');
