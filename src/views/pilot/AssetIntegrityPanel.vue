@@ -5,10 +5,10 @@
  <section class="quality-pipeline"><h4>Generation Quality Pipeline · SHADOW</h4><p>本地 Fast Vision：{{latestFast?.pipeline.fast.BACK.localVisionState??'UNAVAILABLE'}} · {{latestFast?.effectiveFast?.BACK.capabilityClass??'COARSE_ONLY'}}。元数据合格不代表视觉结构合格。</p>
  <button :disabled="busy" @click="quality('fast')">运行 Fast Gate（不调用外部 API）</button>
  <label v-if="canEscalate"><input v-model="externalConfirmed" type="checkbox" /> 允许将该实验 MAIN/SIDE/BACK 发送到项目配置的 Vision，仅影子检查</label>
- <template v-if="canProbe"><label><input v-model="externalConfirmed" type="checkbox" /> 允许能力预检：最多 3 个分阶段请求，失败即停止，无隐式重试</label><button :disabled="busy||!externalConfirmed" @click="quality('preflight')">Vision 能力预检</button><button :disabled="busy||!externalConfirmed" @click="quality('preflight-json')">显式 JSON 文本模式预检</button></template>
+ <template v-if="canProbe||running?.kind.startsWith('preflight')"><label><input v-model="externalConfirmed" type="checkbox" /> 允许能力预检：最多 3 个分阶段请求，失败即停止，无隐式重试</label><button :disabled="busy||!externalConfirmed" @click="quality('preflight')">{{runningLabel('preflight','Vision 能力预检')}}</button><button :disabled="busy||!externalConfirmed" @click="quality('preflight-json')">{{runningLabel('preflight-json','显式 JSON 文本模式预检')}}</button></template>
  <p>External Vision: {{state.externalVision?.model??'未配置'}} · Capability: {{state.externalVision?.state??'UNKNOWN'}}</p><p v-if="canEscalate">仅 Professional 验证，不改变资产、不自动修复。即使 Fast PASS 也可显式复核。</p><select v-if="canEscalate" v-model="targetView"><option value="BACK">仅 BACK（MAIN + BACK）</option><option value="SIDE">仅 SIDE（MAIN + SIDE）</option><option value="ALL">三视图完整检查</option></select>
- <button v-if="canEscalate" :disabled="busy||!externalConfirmed" @click="quality('vision')">运行 Vision 影子复核</button>
- <article v-for="record in pipelineRecords" :key="record.id"><p>{{record.freshness}} · Guard {{record.pipeline.guardState}} · Vision {{record.pipeline.visionEscalation}} · {{record.pipeline.phase}}</p>
+ <button v-if="canEscalate" :disabled="busy||!externalConfirmed" @click="quality('vision')">{{runningLabel('vision','运行 Vision 影子复核')}}</button>
+ <p v-if="lastResult" class="run-result" role="status">{{lastResult}}</p><p v-if="running" class="running-feedback" role="status">{{runningLabel(running.kind,'')}}</p><article v-for="record in pipelineRecords" :key="record.id"><h4>{{auditTitle(record)}}</h4><small>{{record.freshness}} · Guard {{record.pipeline.guardState??'—'}}</small>
  <template v-if="record.pipeline.fast"><p v-for="view in ['SIDE','BACK']" :key="view">{{view}} Fast: COARSE {{record.effectiveFast?.[view]?.coarseStatus??record.pipeline.fast[view].coarseStatus??record.pipeline.fast[view].status}} · Fine: {{(record.effectiveFast?.[view]?.unverifiedFor?.length??1)>0?'UNVERIFIED':'VALIDATED'}} → {{record.effectiveDecisions?.[view]??record.pipeline.decisions[view]}} {{record.effectiveFast?.[view]?.humanConflict??''}} {{record.effectiveFast?.[view]?.humanDecision??''}}</p><p>CROSS-VIEW: {{record.pipeline.decisions.CROSS_VIEW}}</p></template>
  <p v-if="record.pipeline.capability">Vision {{record.pipeline.capability.modelName}} · Image {{record.pipeline.capability.imageInput}} · Structured {{record.pipeline.capability.structuredOutput}} · Multi {{record.pipeline.capability.multiImage}} · {{record.pipeline.capability.recommendedMode}} · {{record.pipeline.capability.errorCode??''}}</p>
  <details><summary>checks / issues / hashes / latency / model / repair proposals</summary><pre>{{JSON.stringify({pipeline:record.pipeline,reports:record.reports,repairProposals:record.repairProposals},null,2)}}</pre></details>
@@ -30,13 +30,13 @@
  <textarea v-model="issue.description" maxlength="1000" placeholder="实际看到的问题；不要把遮挡直接当缺失" required /><button type="button" @click="reports[view].issues.splice(index,1)">移除此项</button>
  </div><button type="button" @click="add(view)">添加 {{view}} 问题</button></article>
  <button :disabled="busy||!state.input">保存人工检查 / 生成修复建议</button></form>
- <article v-for="record in state.history" :key="record.id"><h4>{{record.freshness}} · {{new Date(record.createdAt).toLocaleString()}}</h4><small v-if="record.context">记录时 Profile: {{record.context.integrityProfile}} · {{record.context.profileResolverVersion}}</small><small v-else>历史记录未存储 profile 解析快照；不以当前解析替换。</small><p v-for="view in views" :key="view">{{view}}：{{record.effectiveDecisions?.[view]??record.decisions[view]}}</p>
+ <article v-for="record in state.history" :key="record.id"><h4>{{record.pipeline?auditTitle(record):record.freshness+' · '+new Date(record.createdAt).toLocaleString()}}</h4><small v-if="record.context">记录时 Profile: {{record.context.integrityProfile}} · {{record.context.profileResolverVersion}}</small><small v-else>历史记录未存储 profile 解析快照；不以当前解析替换。</small><p v-for="view in views" :key="view">{{view}}：{{record.effectiveDecisions?.[view]??record.decisions[view]}}</p>
  <ul><template v-for="view in views" :key="view"><li v-for="issue in record.reports[view].issues" :key="issue.id">{{view}} · {{issue.affectedRegion}} · {{issue.severity}} · {{issue.description}}</li></template></ul>
  <details><summary>修复建议（仅提案，未执行）</summary><pre>{{JSON.stringify(record.repairProposals,null,2)}}</pre></details></article>
  </template></section>
 </template>
 <script setup lang="ts">
-import {ref,computed,watch,onBeforeUnmount} from 'vue';
+import {ref,shallowRef,computed,watch,onBeforeUnmount} from 'vue';
 import axios from '@/utils/axios';
 const props=defineProps<{projectId:number;scriptId:number;experimentId:string}>();
 const views=['SIDE','BACK','CROSS_VIEW'],fields=[{key:'identity',label:'身份 / 跨视图身份'},{key:'view',label:'视角 / 结构连续性'},{key:'contamination',label:'额外主体 / 物品污染'}];
@@ -46,19 +46,44 @@ const state=ref<any>(null),reports=ref<any>(freshReports()),busy=ref(false),erro
 const externalConfirmed=ref(false),pipelineRecords=computed(()=>state.value?.history.filter((r:any)=>r.pipeline)??[]);
 const latestFast=computed(()=>pipelineRecords.value.find((r:any)=>r.pipeline.kind==='FAST'&&r.freshness==='CURRENT'));
 const capability=computed(()=>state.value?.externalVision?.capability??null);
-const targetView=ref('BACK');
+const targetView=ref('BACK'),running=shallowRef<any>(null),elapsed=ref(0),lastResult=ref('');
+let clock:ReturnType<typeof setInterval>|undefined,poll:ReturnType<typeof setTimeout>|undefined,readSequence=0;
+function stopRunTimers(){if(clock!==undefined)clearInterval(clock);if(poll!==undefined)clearTimeout(poll);clock=undefined;poll=undefined;}
+function runningLabel(kind:string,idle:string){return running.value?.kind===kind?(kind.startsWith('preflight')?'正在预检 Vision… ':'正在审核 '+running.value.view+'… ')+elapsed.value+'s':idle;}
+function auditPhase(record:any){const p=record.pipeline;return p.phase==='FAILED'||p.visionEscalation==='FAILED'||p.capability?.errorCode||p.capability&&p.capability.state!=='INTEGRITY_VISION_READY'?'FAILED':p.phase??'UNKNOWN';}
+function auditTitle(record:any){const p=record.pipeline,model=p.capability?.modelName??p.visionAudit?.modelName??(p.kind==='FAST'?'Local CPU':p.phase==='STARTED'&&record.freshness==='CURRENT'?state.value?.externalVision?.model?.split(':').slice(1).join(':'):'未记录模型'),time=new Date(record.createdAt).toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'});return [time,p.kind,p.kind==='VISION'?p.targetView??'ALL':null,model,auditPhase(record),p.kind==='PREFLIGHT'&&p.capability?.state==='INTEGRITY_VISION_READY'?'PASS':null].filter(Boolean).join(' · ');}
+function terminalResult(record:any,op:any){if(!record?.pipeline||!['COMPLETED','FAILED'].includes(record.pipeline.phase))return false;
+ const p=record.pipeline,failed=auditPhase(record)==='FAILED',code=p.capability?.errorCode??p.visionAudit?.errorCode??p.errorCode??'UNKNOWN_ERROR',label=op.kind.startsWith('preflight')?'Vision 能力预检':'Vision '+op.view+' 审核';
+ lastResult.value=(failed?'✕ '+label+'失败：'+code:'✓ '+label+'完成');op.terminal=true;stopRunTimers();return true;
+}
+function matchingRunRecord(op:any){return state.value?.history.find((r:any)=>op.recordId?r.id===op.recordId:!op.beforeIds.has(r.id)&&r.pipeline?.kind===(op.kind.startsWith('preflight')?'PREFLIGHT':'VISION')&&(op.kind!=='vision'||r.pipeline.targetView===op.view&&r.pipeline.fastReportId===op.body.fastReportId)&&(!r.pipeline.configSignature||r.pipeline.configSignature===op.configSignature)&&(!r.pipeline.transportMode||r.pipeline.transportMode===op.body.transportMode||op.kind==='vision'));}
+async function refreshCurrent(token:number,unit:any){const sequence=++readSequence,r:any=await axios.post('/v04/multiview/integrity/current',unit);if(token!==generation||sequence!==readSequence)return false;state.value=r.data;return true;}
+function schedulePoll(op:any){poll=setTimeout(async()=>{if(generation!==op.token||running.value!==op||op.terminal)return;try{if(await refreshCurrent(op.token,op.unit))terminalResult(matchingRunRecord(op),op);}catch{/* Keep the submitted operation; read failure must never resubmit it. */}if(generation===op.token&&running.value===op&&!op.terminal)schedulePoll(op);},2000);}
+
 const canProbe=computed(()=>state.value?.externalVision?.configured&&['UNKNOWN','STALE','FAILED'].includes(state.value.externalVision.state));
 const canEscalate=computed(()=>state.value?.externalVision?.state==='READY'&&latestFast.value);
 const regions=computed(()=>[...(state.value?.profile?.regions??[]),'结构','连接','数量','方向','其他']);
 const scope=()=>({projectId:props.projectId,scriptId:props.scriptId,experimentId:props.experimentId});
-watch(()=>[props.projectId,props.scriptId,props.experimentId],()=>{generation++;state.value=null;reports.value=freshReports();externalConfirmed.value=false;busy.value=false;error.value='';void load();},{immediate:true});
-onBeforeUnmount(()=>generation++);
-async function load(){if(busy.value)return;const token=generation;busy.value=true;try{const r:any=await axios.post('/v04/multiview/integrity/current',scope());if(token===generation)state.value=r.data;}catch(e:any){if(token===generation)error.value=e?.response?.data?.message||'检查记录读取失败';}finally{if(token===generation)busy.value=false;}}
+watch(()=>[props.projectId,props.scriptId,props.experimentId],()=>{generation++;readSequence++;stopRunTimers();running.value=null;lastResult.value='';elapsed.value=0;state.value=null;reports.value=freshReports();externalConfirmed.value=false;busy.value=false;error.value='';void load();},{immediate:true});
+onBeforeUnmount(()=>{generation++;readSequence++;stopRunTimers();});
+async function load(){if(busy.value)return;const token=generation;busy.value=true;try{await refreshCurrent(token,scope());}catch(e:any){if(token===generation)error.value=e?.response?.data?.message||'检查记录读取失败';}finally{if(token===generation)busy.value=false;}}
 function add(view:string){reports.value[view].issues.push({id:crypto.randomUUID(),category:view==='CROSS_VIEW'?'CROSS_VIEW':'ORIENTATION',affectedRegion:regions.value[0],description:'',severity:'MODERATE',confidence:'HIGH',localizable:true,repairability:'LOCAL_REPAIR',evidenceViews:view==='CROSS_VIEW'?['MAIN','SIDE','BACK']:[view]});}
 async function save(){if(busy.value||!state.value?.input)return;const token=generation,body={...scope(),expectedInput:state.value.input,reports:JSON.parse(JSON.stringify(reports.value))};busy.value=true;error.value='';try{await axios.post('/v04/multiview/integrity/record',body);if(token===generation){busy.value=false;await load();}}catch(e:any){if(token===generation)error.value=e?.response?.data?.message||'保存失败，请刷新检查';}finally{if(token===generation)busy.value=false;}}
-async function quality(kind:'fast'|'vision'|'preflight'|'preflight-json'){if(busy.value||kind.startsWith('preflight')&&(!canProbe.value||!externalConfirmed.value)||kind==='vision'&&(!canEscalate.value||!externalConfirmed.value))return;const token=generation,body=kind==='fast'?scope():{...scope(),...(kind==='vision'?{fastReportId:latestFast.value.id}:{}),confirmExternalInspection:true,...(kind==='vision'?{targetView:targetView.value,forceShadow:true}:kind.startsWith('preflight')?{transportMode:kind==='preflight-json'?'JSON_TEXT':'NATIVE'}:{})};busy.value=true;error.value='';try{await axios.post('/v04/multiview/quality/'+(kind.startsWith('preflight')?'preflight':kind),body);if(token===generation){externalConfirmed.value=false;busy.value=false;await load();}}catch(e:any){if(token===generation)error.value=e?.response?.data?.message||'检查交付结果不确定，请刷新记录；不会自动重复外部调用。';}finally{if(token===generation)busy.value=false;}}
+async function quality(kind:'fast'|'vision'|'preflight'|'preflight-json'){
+ if(busy.value||kind.startsWith('preflight')&&(!canProbe.value||!externalConfirmed.value)||kind==='vision'&&(!canEscalate.value||!externalConfirmed.value))return;
+ const token=generation,unit=scope(),body=kind==='fast'?unit:{...unit,...(kind==='vision'?{fastReportId:latestFast.value.id}:{}),confirmExternalInspection:true,...(kind==='vision'?{targetView:targetView.value,forceShadow:true}:{transportMode:kind==='preflight-json'?'JSON_TEXT':'NATIVE'})};
+ busy.value=true;error.value='';lastResult.value='';
+ const op:any={kind,token,unit,body,view:targetView.value,configSignature:state.value?.externalVision?.configSignature,beforeIds:new Set(state.value?.history.map((r:any)=>r.id)??[]),terminal:false};
+ if(kind!=='fast'){running.value=op;elapsed.value=0;const started=Date.now();clock=setInterval(()=>{elapsed.value=Math.floor((Date.now()-started)/1000);},1000);schedulePoll(op);}
+ try{const response:any=await axios.post('/v04/multiview/quality/'+(kind.startsWith('preflight')?'preflight':kind),body);if(token!==generation)return;
+  op.recordId=response.data?.id;await refreshCurrent(token,unit);if(token!==generation)return;
+  if(kind!=='fast'&&!terminalResult(matchingRunRecord(op),op)&&!terminalResult(response.data,op))lastResult.value='请求已返回，但尚未读到终态；请刷新记录，不自动重试。';externalConfirmed.value=false;
+ }catch(e:any){if(token!==generation)return;try{await refreshCurrent(token,unit);}catch{/* Report uncertainty if no persisted terminal evidence can be read. */}if(token!==generation)return;
+  if(kind==='fast'||!terminalResult(matchingRunRecord(op),op)){const code=e?.response?.data?.code??e?.response?.data?.errorCode;if(kind!=='fast'&&code)lastResult.value='✕ '+(kind.startsWith('preflight')?'Vision 能力预检':'Vision '+op.view+' 审核')+'请求失败：'+code;else error.value=e?.response?.data?.message||'检查交付结果不确定，请刷新记录；不会自动重复外部调用。';}
+ }finally{if(token===generation){stopRunTimers();running.value=null;busy.value=false;}}
+}
 async function feedback(visionReportId:string,usefulness:string){if(busy.value)return;const token=generation;busy.value=true;error.value='';try{await axios.post('/v04/multiview/quality/feedback',{...scope(),visionReportId,usefulness});if(token===generation){busy.value=false;await load();}}catch(e:any){if(token===generation)error.value=e?.response?.data?.message||'反馈保存失败';}finally{if(token===generation)busy.value=false;}}
 </script>
 <style scoped>
-.integrity-panel{margin-top:1rem;padding:1rem;border:1px solid #596171;background:#171b22}.integrity-panel article{padding:.8rem;border-top:1px solid #596171}.integrity-panel label{display:inline-block;margin:.4rem}.issue{padding:.5rem;border:1px solid #596171}select,textarea,button{background:#252b36;color:#e2e7ef;border:1px solid #596171;padding:.4rem}textarea{display:block;width:95%}pre{white-space:pre-wrap;max-height:320px;overflow:auto}
+.running-feedback{color:#b8c1d3}.run-result{padding:.4rem 0}button:disabled{cursor:wait;opacity:.7}.integrity-panel{margin-top:1rem;padding:1rem;border:1px solid #596171;background:#171b22}.integrity-panel article{padding:.8rem;border-top:1px solid #596171}.integrity-panel label{display:inline-block;margin:.4rem}.issue{padding:.5rem;border:1px solid #596171}select,textarea,button{background:#252b36;color:#e2e7ef;border:1px solid #596171;padding:.4rem}textarea{display:block;width:95%}pre{white-space:pre-wrap;max-height:320px;overflow:auto}
 </style>
