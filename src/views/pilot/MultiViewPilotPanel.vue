@@ -29,6 +29,7 @@
         <label v-for="side in sides" :key="side">{{side}}<select v-model="verdicts[side]"><option value="">请选择</option><option>PASS</option><option>PARTIAL_PASS</option><option>FAIL</option></select></label>
         <textarea v-model="why" maxlength="4000" placeholder="身份、视角和污染的实际观察" /><button :disabled="busy||!verdicts.SIDE||!verdicts.BACK">保存人工记录</button>
       </form>
+      <AssetIntegrityPanel :key="experiment.id" :project-id="projectId" :script-id="scriptId" :experiment-id="experiment.id" />
       <p v-if="experiment.evaluation">已记录：SIDE {{experiment.evaluation.SIDE}} / BACK {{experiment.evaluation.BACK}}</p>
       <p v-if="experiment.evaluation?.BACK==='FAIL'">Back direct 未通过，可尝试 Main + Side 双参考后视图。当前仅建议，需另行人工授权；没有 fallback 执行入口。</p>
       <p v-if="experiment.execution?.errorCode" role="alert">{{experiment.execution.errorCode}}。结果保留，不自动重新生成。</p>
@@ -40,6 +41,7 @@
 import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import axios from '@/utils/axios';
 import StudioImageLightbox from './StudioImageLightbox.vue';
+import AssetIntegrityPanel from './AssetIntegrityPanel.vue';
 import type {StudioReviewImage} from './studioImageReview';
 const props=defineProps<{projectId:number;scriptId:number}>(),sides=['SIDE','BACK'] as const;
 const records=ref<any[]>([]),selectedId=ref(''),busy=ref(false),error=ref(''),confirmOpen=ref(false),sourceReviewed=ref(false);
