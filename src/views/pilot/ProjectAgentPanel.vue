@@ -91,7 +91,7 @@ type Message = { id: string; role: string; content: string; createTime?: number;
 type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; parentCandidateId?: string; optionalDraft?: any; knownFailure?: string; persistedUserMessageId?: string };
 type Target = "brief" | "treatment" | "script";
 const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; activityJobs?: any[]; imageBaselines?:any[]; reviewCandidateId?: string; scopeLabel?: string; acceptStudioProposal?: (action: any, actionId: string) => Promise<void>; assetCreateReview?: StudioAssetCreateCardState | null; confirmAssetCreate?: (actionId: string) => Promise<void>; cancelAssetCreate?: (actionId: string) => void; retryAssetDraft?: (actionId: string) => Promise<void> }>();
-const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void; (e: "studio-professional"): void }>();
+const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void; (e: "studio-professional"): void; (e: "director-proposal"): void }>();
 const proposalWorkspace = useV04ProposalWorkspace();
 const { themeSetting } = storeToRefs(settingStore());
 const markdownTheme = computed<"light" | "dark">(() => themeSetting.value.mode === "auto" ? (document.documentElement.getAttribute("theme-mode") === "dark" ? "dark" : "light") : themeSetting.value.mode);
@@ -140,7 +140,8 @@ async function openCandidate(c:any){const own=generation;const group=imageCandid
  const images=group.filter(other=>candidateUrls.value[other.id]).map(other=>({id:other.id,src:candidateUrls.value[other.id],label:(other.assetName||'素材')+' · 图片版本',candidateId:other.id}));reviewImages.open(`candidate:${props.projectId}:${props.scriptId}:${c.canonicalKey}`,images,images.findIndex(i=>i.id===c.id));}
 function focusComposer() { composerInput.value?.focus(); }
 function setInstruction(text:string){draft.value=text;focusComposer();}
-defineExpose({ focusComposer, setInstruction });
+function directorAccepted(){localMessages.value.push({id:`director-confirmed:${Date.now()}`,role:"assistant",content:"已采用这版导演方向。后续视觉设计可在下一阶段以它为基础，但当前图片不会自动改变。"});scrollToLatest();}
+defineExpose({ focusComposer, setInstruction, directorAccepted });
 function studioActionFor(m: Message) { return proposalWorkspace.current().studioActions[m.actionId || m.id]; }
 function assetReviewFor(m: Message) { return props.assetCreateReview?.actionId === (m.actionId || m.id) ? props.assetCreateReview : null; }
 async function acceptStudioAction(m: Message) {
@@ -226,6 +227,7 @@ async function finishStudioResponse(request: Submission, response: any) {
   if (["PROPOSE_CHANGE", "ASSET_CREATE"].includes(response.data.mode) && response.data.actionProposal && response.data.assistantMessageId)
     proposalWorkspace.putStudioAction(response.data.assistantMessageId, response.data.actionProposal,
       `${request.ctx.projectId}:${request.ctx.scriptId}`);
+  if(response.data.directorProposal)emit("director-proposal");
   if (agent) { agent.phase = "answering"; agent.content = response.data.reply; agent.actionId = response.data.assistantMessageId; agent.error = undefined; agent.retryable = false; agent.checkable = false; }
   scrollToLatest();
   if (await load(false)) removeLocal(request.id);
