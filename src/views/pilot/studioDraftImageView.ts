@@ -36,5 +36,5 @@ export function currentDraftImageJobForPurpose(asset: { canonicalKey: string; re
     (draftPackage?.projectId == null || job.projectId === draftPackage.projectId) &&
     (draftPackage?.scriptId == null || job.scriptId === draftPackage.scriptId);
   const id = draftPackage?.imageJobsByPurpose?.[executionPurpose];
-  return (id ? jobs.find(job => job.id === id && match(job)) : jobs.find(job => match(job) && ['QUEUED','RUNNING','SUCCEEDED','FAILED'].includes(job.status))) ?? null;
+  return (id ? jobs.find(job => job.id === id && match(job) && !['STALE','CANCELLED'].includes(job.status)) : jobs.find(job => match(job) && ['QUEUED','RUNNING','SUCCEEDED','FAILED'].includes(job.status))) ?? null;
 }

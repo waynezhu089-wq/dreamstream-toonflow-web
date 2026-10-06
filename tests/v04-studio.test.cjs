@@ -294,3 +294,16 @@ test('OPT-029A candidate polling drops late results after scope switch',async()=
 test('OPT-029A accepted candidate display outranks old MAIN_PREVIEW, pending candidates do not alter current card',()=>{
  const imageFor=componentFunction('src/views/pilot/StudioWorkspace.vue','imageFor',{draftImages:{value:{old:'old-url',accepted:'new-url'}},referenceImages:{value:{}}});const item={imageJob:{id:'old',status:'SUCCEEDED'},refs:[]};assert.equal(imageFor(item),'old-url');assert.equal(imageFor({...item,acceptedImageJob:{id:'accepted'}}),'new-url');assert.equal(imageFor({...item,selectedPurpose:'FACE_HERO',referenceJobs:{FACE_HERO:{id:'old',status:'SUCCEEDED'}}}),'old-url');
 });
+
+test('033A pipeline progress restores persisted preparation and Attention without resubmission',()=>{
+ const {pipelineProgressLabel:p}=source('src/views/pilot/assetPipelineView.ts');assert.match(p({latest:{phase:'INITIAL_STARTED'}}),/整理/);assert.match(p({latest:{phase:'DIRECTOR_REVIEW'}}),/审阅/);assert.match(p({latest:{phase:'PREPARING'}}),/视觉草案/);assert.match(p({latest:{phase:'ATTENTION'}}),/关注/);
+ const persisted={latest:{phase:'ADMITTED'},coverage:{aiAllowed:4,firstDraftReady:3,firstDraftRunning:1,attentionCount:1,items:[{packReady:['SIDE_PROFILE'],packRunning:['FULL_BODY_BACK']}]}};
+ assert.equal(p(persisted),p(JSON.parse(JSON.stringify(persisted))));assert.match(p(persisted),/3\/4/);assert.match(p(persisted),/需要关注 1/);assert.doesNotMatch(p(persisted),/Krea|Klein|hash|workflow/);
+});
+test('033A explicit stale purpose IDs never restore old views, current purposes remain independently selectable',()=>{
+ const {currentDraftImageJobForPurpose:f}=source('src/views/pilot/studioDraftImageView.ts'),a={canonicalKey:'CHAR-001',revision:1};const rows=[{id:'old',canonicalKey:'CHAR-001',sourceAssetRevision:1,executionPurpose:'SIDE_PROFILE',status:'STALE',projectId:9,scriptId:1},{id:'new',canonicalKey:'CHAR-001',sourceAssetRevision:1,executionPurpose:'SIDE_PROFILE',status:'SUCCEEDED',projectId:9,scriptId:1}];
+ assert.equal(f(a,{projectId:9,scriptId:1,imageJobsByPurpose:{SIDE_PROFILE:'old'}},rows,'SIDE_PROFILE'),null);assert.equal(f(a,{projectId:9,scriptId:1},[rows[1],rows[0]],'SIDE_PROFILE').id,'new');assert.equal(f(a,{projectId:10,scriptId:1},rows,'SIDE_PROFILE'),null);
+});
+test('033A creation has free visual-style input; refresh paths read pipeline without inference admission',()=>{
+ const s=read('src/views/pilot/StudioWorkspace.vue');assert.match(s,/v-model="newProject.visualStyle"/);assert.match(s,/visualStyle:''/);assert.match(s,/api\('\/project\/create',\{\.\.\.newProject\}\)/);const open=s.slice(s.indexOf('async function open('),s.indexOf('function focusAgent'));assert.doesNotMatch(open,/await reconcileAssets\(/);const mounted=s.slice(s.indexOf('onMounted(async()=>'),s.indexOf("watch(()=>[route.query.projectId"));assert.doesNotMatch(mounted,/reconcileAssets\(/);assert.match(mounted,/loadPipelineState/);assert.equal(compileTemplate({source:parse(s).descriptor.template.content,filename:'StudioWorkspace.vue',id:'033A'}).errors.length,0);
+});

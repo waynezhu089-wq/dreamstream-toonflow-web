@@ -13,7 +13,7 @@
     <p v-if="item.status==='需要处理'" class="warning">这项素材需要你检查；详细原因可在专业模式查看。</p>
     <StudioReferenceGallery :images="referenceImages" @open="openReference" />
     <p v-if="referencesPending" role="status">其他参考正在准备中…</p>
-    <div class="actions"><button type="button" @click="$emit('modify')">让 Agent 修改</button><button type="button" @click="$emit('professional')">进入专业模式</button></div>
+    <div class="actions"><button type="button" @click="$emit('modify')">让 Agent 修改</button><button v-if="!real" type="button" @click="$emit('request-image','所需多视角')">让 Agent 准备多视角</button><button type="button" @click="$emit('professional')">查看更多</button></div>
   </aside>
 </template>
 <script setup lang="ts">
