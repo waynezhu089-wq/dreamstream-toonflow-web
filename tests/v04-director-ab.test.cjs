@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),{test}=require('node:test'),path=require('node:path'),fs=require('node:fs');
 const {JSDOM}=require('jsdom'),dom=new JSDOM('<html><body></body></html>');
 for(const key of ['window','document','Element','HTMLElement','SVGElement','Node','Event','KeyboardEvent'])global[key]=dom.window[key];
-let urls=0;URL.createObjectURL=()=>`blob:test-${++urls}`;URL.revokeObjectURL=()=>{};
+let urls=0;URL.createObjectURL=blob=>{assert.ok(blob instanceof Blob);return `blob:test-${++urls}`;};URL.revokeObjectURL=()=>{};
 const vue=require('vue'),{loadVueSource}=require('./helpers/load-vue-source.cjs');
 const file=path.resolve(__dirname,'../src/views/pilot/DirectorAssetABPanel.vue');
 const flush=async()=>{for(let i=0;i<12;i++){await Promise.resolve();await vue.nextTick();}};
@@ -20,7 +20,7 @@ test('DIR032A mounted semantic gate compiles without rendering; explicit dialog 
 });
 test('DIR032A completed reload restores side-by-side candidates, lightbox and human-only evaluation',async t=>{
  const c=fixture('COMPLETED');c.execution={A:{status:'SUCCEEDED',artifact:{artifactId:'a'}},B:{status:'SUCCEEDED',artifact:{artifactId:'b'}}};const calls=[];
- const {el}=mount(t,async(url,body)=>{calls.push({url,body});if(url.endsWith('/current'))return {data:[c]};if(url.endsWith('/artifact'))return {data:new Blob(['image'])};if(url.endsWith('/evaluate'))return {data:{conclusion:body.conclusion,why:body.why}};throw Error(url);});await flush();
+ const {el}=mount(t,async(url,body)=>{calls.push({url,body});if(url.endsWith('/current'))return {data:[c]};if(url.endsWith('/artifact'))return new Blob(['image'],{type:'image/png'});if(url.endsWith('/evaluate'))return {data:{conclusion:body.conclusion,why:body.why}};throw Error(url);});await flush();
  assert.equal(el.querySelectorAll('.ab-columns .ab-image img').length,2);assert.match(el.textContent,/A · SUCCEEDED/);assert.match(el.textContent,/B · SUCCEEDED/);assert.equal(calls.filter(c=>c.url.endsWith('/render')).length,0);
  el.querySelector('.ab-image').click();await flush();assert.ok(document.body.querySelector('.studio-lightbox'));document.body.querySelector('.studio-lightbox').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));await flush();assert.equal(document.body.querySelector('.studio-lightbox'),null);
  const selects=el.querySelectorAll('form select');assert.equal(selects.length,7);selects.forEach((s,i)=>{s.value=i===6?'PARTIAL_WIN':'B';s.dispatchEvent(new Event('change',{bubbles:true}));});await flush();el.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flush();const request=calls.find(c=>c.url.endsWith('/evaluate'));assert.deepEqual(request.body.choices,Array(6).fill('B'));assert.equal(request.body.conclusion,'PARTIAL_WIN');assert.match(el.textContent,/已保存：PARTIAL_WIN/);
@@ -31,7 +31,7 @@ test('DIR032A context switch discards late compile and late artifact responses',
 test('DIR032A late old-scope image download cannot populate the new unit',async t=>{
  const c=fixture('COMPLETED');c.execution.A={status:'SUCCEEDED',artifact:{artifactId:'a'}};let finishImage;
  const {el,props}=mount(t,(url,body)=>{if(url.endsWith('/current'))return Promise.resolve({data:body.projectId===9?[c]:[]});if(url.endsWith('/artifact'))return new Promise(r=>finishImage=r);throw Error(url);});await flush();
- assert.ok(finishImage);props.projectId=10;props.scriptId=3;await flush();finishImage({data:new Blob(['old image'])});await flush();assert.equal(el.querySelector('img'),null);assert.equal(el.querySelector('details'),null);
+ assert.ok(finishImage);props.projectId=10;props.scriptId=3;await flush();finishImage(new Blob(['old image'],{type:'image/png'}));await flush();assert.equal(el.querySelector('img'),null);assert.equal(el.querySelector('details'),null);
 });
 test('DIR032A Professional surface is separate from normal Studio generation',()=>{
  const shell=fs.readFileSync(path.resolve(__dirname,'../src/views/pilot/PilotShell.vue'),'utf8');assert.match(shell,/<DirectorAssetABPanel v-if="tab==='director'"/);
@@ -46,4 +46,14 @@ test('DIR032AH1 inherited and excluded DNA are visible without expanding raw aud
  assert.match(el.querySelector('.dna-excluded').textContent,/Dream Matter particles/);
  assert.doesNotMatch(el.querySelector('.dna-inherited').textContent,/Dream Matter particles/);
  assert.equal(el.querySelector('[role=dialog]'),null);
+});
+test('DIR032AH2 persisted artifacts restore on remount with direct Blob response contract',async t=>{
+ const c=fixture('COMPLETED');c.execution={A:{status:'SUCCEEDED',artifact:{artifactId:'a'}},B:{status:'SUCCEEDED',artifact:{artifactId:'b'}}};const calls=[];
+ const post=async(url,body,config)=>{calls.push({url,body,config});if(url.endsWith('/current'))return {data:[c]};if(url.endsWith('/artifact')){assert.equal(config.responseType,'blob');return new Blob(['png'],{type:'image/png'});}throw Error(url);};
+ for(let i=0;i<2;i++){const {el}=mount(t,post);await flush();assert.equal(el.querySelectorAll('.ab-image img').length,2);assert.doesNotMatch(el.textContent,/实验图片读取失败/);assert.equal(el.querySelectorAll('form select').length,7);assert.doesNotMatch(el.textContent,/Adopt|采用此图/);}
+ assert.ok(calls.some(x=>x.body.side==='A'));assert.ok(calls.some(x=>x.body.side==='B'));assert.ok(calls.every(x=>!x.url.endsWith('/render')));
+});
+test('DIR032AH2 invalid binary response only reports read failure without changing completed result or rendering',async t=>{
+ const c=fixture('COMPLETED');c.execution={A:{status:'SUCCEEDED',artifact:{artifactId:'a'}},B:{status:'SUCCEEDED',artifact:{artifactId:'b'}}};const calls=[];
+ const {el}=mount(t,async url=>{calls.push(url);return url.endsWith('/current')?{data:[c]}:{data:new Blob(['wrong wrapper'])};});await flush();assert.match(el.textContent,/实验图片读取失败，可刷新重试/);assert.match(el.textContent,/COMPLETED/);assert.equal(el.querySelector('img'),null);assert.ok(calls.every(x=>!x.endsWith('/render')));assert.equal(c.status,'COMPLETED');
 });
