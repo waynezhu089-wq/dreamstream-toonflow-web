@@ -1,7 +1,9 @@
 <template>
  <section class="integrity-panel"><h3>结构完整性 · Integrity Gate</h3><p>人工检查，不是自动视觉判定。不可见不等于缺失；已确认的虚构结构优先。不评价氛围或导演意图。</p>
  <button :disabled="busy" @click="load">刷新检查记录</button><p v-if="error" role="alert">{{error}}</p>
- <template v-if="state"><p>{{state.context.integrityProfile}} · HUMAN_INSPECTOR</p><p v-if="!state.input">图片未完成或来源已变化，只能查看历史。</p>
+ <template v-if="state"><p>Resolved Profile: {{state.context.integrityProfile}} · HUMAN_INSPECTOR</p>
+ <small v-if="state.context.profileResolution">{{state.context.profileResolution.confidence}} · 依据：{{state.context.profileResolution.evidence.join('；')}}<span v-if="state.context.profileResolution.fallbackUsed"> · 通用/辅助依据，请人工核对形态</span></small>
+ <p v-if="!state.input">图片未完成或来源已变化，只能查看历史。</p>
  <details><summary>确认身份 / 结构依据</summary><pre>{{JSON.stringify(state.context,null,2)}}</pre></details>
  <form v-if="state.input" @submit.prevent="save"><article v-for="view in views" :key="view"><h4>{{view}}</h4>
  <label><input v-model="reports[view].reviewed" type="checkbox" /> 已实际检查{{view==='CROSS_VIEW'?'三视图连续性':'该视图结构'}}</label>
@@ -16,7 +18,7 @@
  <textarea v-model="issue.description" maxlength="1000" placeholder="实际看到的问题；不要把遮挡直接当缺失" required /><button type="button" @click="reports[view].issues.splice(index,1)">移除此项</button>
  </div><button type="button" @click="add(view)">添加 {{view}} 问题</button></article>
  <button :disabled="busy||!state.input">保存人工检查 / 生成修复建议</button></form>
- <article v-for="record in state.history" :key="record.id"><h4>{{record.freshness}} · {{new Date(record.createdAt).toLocaleString()}}</h4><p v-for="view in views" :key="view">{{view}}：{{record.decisions[view]}}</p>
+ <article v-for="record in state.history" :key="record.id"><h4>{{record.freshness}} · {{new Date(record.createdAt).toLocaleString()}}</h4><small v-if="record.context">记录时 Profile: {{record.context.integrityProfile}} · {{record.context.profileResolverVersion}}</small><small v-else>历史记录未存储 profile 解析快照；不以当前解析替换。</small><p v-for="view in views" :key="view">{{view}}：{{record.decisions[view]}}</p>
  <ul><template v-for="view in views" :key="view"><li v-for="issue in record.reports[view].issues" :key="issue.id">{{view}} · {{issue.affectedRegion}} · {{issue.severity}} · {{issue.description}}</li></template></ul>
  <details><summary>修复建议（仅提案，未执行）</summary><pre>{{JSON.stringify(record.repairProposals,null,2)}}</pre></details></article>
  </template></section>
