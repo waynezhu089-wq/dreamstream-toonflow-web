@@ -1,5 +1,5 @@
 <template>
- <article class="image-candidate" :data-candidate-id="candidate.id" aria-label="图片版本">
+ <article class="image-candidate" :class="{'compact-candidate':compact}" :data-candidate-id="candidate.id" aria-label="图片版本">
   <strong>{{ candidate.assetName || '素材' }} · {{ pending ? '正在准备新版本' : '图片版本' }}</strong>
   <p v-if="pending" role="status"><span class="studio-spinner" aria-hidden="true" />{{ candidate.status==='QUEUED'?'等待生成':'正在生成' }} · {{ elapsed }} · 当前版本未替换</p>
   <button v-if="src" class="candidate-image" type="button" aria-label="查看图片版本" @click="$emit('open')"><img :src="src" :alt="candidate.assetName || '图片版本'" /></button>
@@ -19,7 +19,7 @@
 </template>
 <script setup lang="ts">
 import {computed} from 'vue';import {formatStudioElapsed} from './studioTurnPresentation';import type {StudioActionState} from './studioActionFeedback';
-const props=defineProps<{candidate:any;src?:string;preview?:any;busy:boolean;actions:Record<"adoptPreview"|"adoptConfirm"|"continue"|"reject",StudioActionState>;now:number}>();
+const props=defineProps<{candidate:any;compact?:boolean;src?:string;preview?:any;busy:boolean;actions:Record<"adoptPreview"|"adoptConfirm"|"continue"|"reject",StudioActionState>;now:number}>();
 defineEmits<{(e:'preview'):void;(e:'accept'):void;(e:'cancel'):void;(e:'continue'):void;(e:'reject'):void;(e:'open'):void}>();
 const pending=computed(()=>['QUEUED','RUNNING'].includes(props.candidate.status));
 function actionText(state:StudioActionState,idle:string){return state.phase==='WORKING'?state.label:state.phase==='SUCCESS'?'✓ '+state.label:state.phase==='FAILURE'?'⚠ 未完成':idle;}
@@ -28,4 +28,5 @@ const duration=computed(()=>Number.isFinite(props.candidate.startedAt)&&Number.i
 </script>
 <style scoped>
 .image-candidate{padding:.8rem 0;margin:.6rem 0;min-width:0}.image-candidate strong{font-size:.85rem}.candidate-image{border:0;background:transparent;padding:0;display:block;max-width:100%;margin:.6rem 0;cursor:zoom-in}.candidate-image img{display:block;max-width:100%;max-height:440px;width:auto;height:auto;object-fit:contain}.candidate-actions,.candidate-confirm{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center}.candidate-confirm p{width:100%;line-height:1.5}.image-candidate button:not(.candidate-image){border:1px solid var(--td-component-border);border-radius:5px;background:var(--td-bg-color-secondarycontainer);color:inherit;padding:.4rem .65rem;cursor:pointer}.image-candidate button:hover{border-color:var(--td-brand-color)}.image-candidate button:active{transform:translateY(1px)}.image-candidate button:disabled{opacity:.5;cursor:default}.completion,.image-candidate small{color:var(--td-text-color-secondary);font-size:.8rem}.success{color:var(--td-success-color)}.failure{color:var(--td-error-color)}.warning{color:var(--td-warning-color)}button[data-phase=WORKING]{color:var(--td-brand-color);background:color-mix(in srgb,var(--td-brand-color) 10%,var(--td-bg-color-container))}.studio-spinner{display:inline-block;width:.7em;height:.7em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:studio-spin 1s linear infinite;margin-right:.4rem}@keyframes studio-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.studio-spinner{animation:none}}
+.compact-candidate{width:180px;max-width:100%;padding:.35rem 0;margin:.3rem 0}.compact-candidate .candidate-image img{max-width:min(160px,100%);max-height:160px;width:auto;height:auto;object-fit:contain}.compact-candidate p{margin:.3rem 0;font-size:.74rem}.compact-candidate .candidate-actions{gap:.3rem}
 </style>
