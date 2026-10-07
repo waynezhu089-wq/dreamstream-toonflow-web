@@ -6,6 +6,8 @@
     </header>
     <p class="stale" v-if="accepted?.status === 'STALE'">影片创意或素材已变化，这版导演方向需要重新确认。</p>
     <p v-if="!shown">让 Project Agent 帮你整理整部影片的视觉方向，或在这里提出要求。</p>
+    <p v-if="compact && shown" class="director-summary">{{ shown.projectBible.globalVisualDNA.artStyle }} · {{ shown.projectBible.globalVisualDNA.atmosphere }}</p>
+    <div v-show="!compact" class="director-full">
     <template v-if="shown">
       <h3>整体视觉</h3>
       <p>{{ shown.projectBible.globalVisualDNA.artStyle || "尚待讨论" }} · {{ shown.projectBible.globalVisualDNA.atmosphere }}</p>
@@ -52,12 +54,14 @@
       ✓ 当前导演版本。已采用这版导演方向，后续视觉设计可在下一阶段以它为基础，但当前图片不会自动改变。
     </p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
+    </div>
+    <p v-if="compact && (proposal || preview || busy || error)" role="status">{{ busy ? "导演方案正在处理…" : error || "有待审导演方案，展开后继续" }}</p>
   </section>
 </template>
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from "vue";
 import axios from "@/utils/axios";
-const props = defineProps<{ projectId: number; scriptId: number; selected?: { type: "PROJECT" | "ASSET" | "SHOT"; key: string } | null }>(),
+const props = defineProps<{ projectId: number; scriptId: number; compact?: boolean; selected?: { type: "PROJECT" | "ASSET" | "SHOT"; key: string } | null }>(),
   emit = defineEmits<{ (e: "accepted"): void }>();
 const accepted = ref<any>(null),
   proposal = ref<any>(null),
@@ -268,4 +272,5 @@ button:disabled {
 .stale {
   color: var(--td-warning-color);
 }
+.director-summary{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:.4rem 0}.director-card h2{font-size:.85rem}.director-full{overflow:visible}
 </style>

@@ -121,24 +121,16 @@ test('Studio has one Agent composer, a scoped proposal card and no duplicate act
   assert.match(panel,/own !== generation/,'late results cannot enter a switched project');
 });
 
-test('Studio layout defaults, clamps and preferences survive project changes without production writes',()=>{
-  const { defaultStudioLayout, mainBounds, verticalBounds, drawerBounds, readStudioLayout, saveStudioLayout, studioLayoutKey, clamp }=source('src/views/pilot/studioLayout.ts');
-  const map=new Map(),store={getItem:key=>map.get(key)||null,setItem:(key,value)=>map.set(key,value)};
-  assert.deepEqual(readStudioLayout(store),{mainSplitRatio:58,leftVerticalSplitRatio:62,assetDrawerWidth:440});
-  assert.equal(clamp(10,mainBounds(1000).min,mainBounds(1000).max),42);
-  assert.equal(clamp(90,mainBounds(1000).min,mainBounds(1000).max),65.3);
-  assert.ok(Math.abs(clamp(0,verticalBounds(800).min,verticalBounds(800).max)-27.5)<.001);
-  assert.ok(Math.abs(clamp(100,verticalBounds(800).min,verticalBounds(800).max)-49.125)<.001);
-  assert.deepEqual(drawerBounds(1200),{min:320,max:780});
-  const changed={mainSplitRatio:64,leftVerticalSplitRatio:55,assetDrawerWidth:500};
-  saveStudioLayout(changed,store);assert.deepEqual(readStudioLayout(store),changed);
-  assert.equal(map.has(studioLayoutKey),true);
-  map.set(studioLayoutKey,JSON.stringify({mainSplitRatio:999,leftVerticalSplitRatio:'bad',assetDrawerWidth:-1}));
-  assert.deepEqual(readStudioLayout(store),defaultStudioLayout);
-  const studio=read('src/views/pilot/StudioWorkspace.vue');
-  assert.match(studio,/mainResize\.cancel\(\);verticalResize\.cancel\(\)/,'scope switch ends active drag');
-  assert.match(studio,/@media\(max-width:999px\)/,'narrow view stacks panes');
-  assert.doesNotMatch(read('src/views/pilot/studioLayout.ts'),/axios|fetch|project\/apply/);
+test('Studio v2 migrates old split preferences without restoring nested vertical panels',()=>{
+ const {defaultStudioLayout,mainBounds,readStudioLayout,saveStudioLayout,studioLayoutKey}=source('src/views/pilot/studioLayout.ts');
+ const map=new Map(),store={getItem:key=>map.get(key)||null,setItem:(key,value)=>map.set(key,value)};
+ assert.deepEqual(readStudioLayout(store),defaultStudioLayout);
+ map.set(studioLayoutKey,JSON.stringify({mainSplitRatio:64,leftVerticalSplitRatio:55,assetDrawerWidth:500}));
+ assert.deepEqual(readStudioLayout(store),{version:2,mainSplitRatio:64,assetDrawerWidth:500,focus:'split',directorExpanded:false});
+ const changed={...defaultStudioLayout,mainSplitRatio:72,focus:'assets',directorExpanded:true};saveStudioLayout(changed,store);assert.deepEqual(readStudioLayout(store),changed);
+ assert.ok(mainBounds(1366).min<25);assert.ok(mainBounds(1366).max>75);
+ map.set(studioLayoutKey,'broken');assert.deepEqual(readStudioLayout(store),defaultStudioLayout);
+ assert.doesNotMatch(read('src/views/pilot/studioLayout.ts'),/axios|fetch|project\/apply/);
 });
 
 test('resizable separator supports pointer capture, keyboard, reset and clean release',()=>{

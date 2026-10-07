@@ -1,5 +1,5 @@
 <template>
-  <aside ref="agentElement" class="agent" :class="{ 'studio-agent': studioMode }" aria-label="项目智能体">
+  <aside ref="agentElement" class="agent" :class="{ 'studio-agent': studioMode, 'integrated-agent': integrated, 'reading-mode': readingMode, 'large-editor': largeEditor }" aria-label="项目智能体">
     <header>
       <div><strong>Project Agent</strong><small>同一个项目，对话持续保留</small></div>
       <span class="status" role="status" aria-live="polite"><span v-if="activity.running" class="studio-spinner" aria-hidden="true" />{{ activity.label }}</span>
@@ -7,7 +7,9 @@
     <p class="context">{{ studioMode ? scopeLabel || '正在讨论：整个项目' : `${stage} · ${selected ? `${selected.type} ${selected.key}` : '整个项目'}` }}</p>
     <details v-if="creativeMode && studioMode" class="more-actions"><summary>更多创意操作</summary><div class="quick-actions"><StudioActionButton label="调整创意方向" working="正在准备方案…" :disabled="busy" :scope-key="projectId+':'+scriptId" :action="()=>suggest('brief')" /><StudioActionButton label="生成故事方案" working="正在准备方案…" :disabled="busy" :scope-key="projectId+':'+scriptId" :action="()=>suggest('treatment')" /><StudioActionButton label="生成剧本方案" working="正在准备方案…" :disabled="busy" :scope-key="projectId+':'+scriptId" :action="()=>suggest('script')" /></div></details>
     <div v-else-if="creativeMode" class="quick-actions"><button :disabled="busy" @click="suggest('brief')">提出 Brief 修改</button><button :disabled="busy" @click="suggest('treatment')">生成 Treatment 提案</button><button :disabled="busy" @click="suggest('script')">生成 Script 提案</button></div>
-    <div ref="feed" class="feed" role="log" aria-live="polite">
+    <div ref="feed" class="feed" :role="integrated ? undefined : 'log'" @scroll="onFeedScroll" @load.capture="onFeedContentLoad">
+      <slot name="workspace" />
+      <div class="conversation-body" role="log" aria-live="polite">
       <p v-if="!messages.length" class="empty">先聊创意。讨论和图片会跟随这个项目；Agent 的建议不会直接改动正式内容。</p>
       <div v-for="m in messages" :key="m.id" class="turn" :class="[m.role, m.phase || 'complete']">
         <small class="turn-label">{{ m.role === "user" ? "你" : "Project Agent" }}</small>
@@ -59,11 +61,13 @@
     <div v-if="referencePreview" class="confirm-reference"><strong>确认图片用途</strong><p>{{ referencePreview.notice }}</p><button :disabled="busy" @click="applyReference">确认</button><button class="quiet" @click="referencePreview=null">取消</button></div>
     <div v-if="error" class="error" role="alert">{{ studioMode?studioChromeText(error):error }}</div>
     </div>
-    <div v-if="studioMode" class="composer-handle" role="separator" aria-label="调整输入区高度" aria-orientation="horizontal" :aria-valuenow="Math.round(composerSize)" :aria-valuemin="80" :aria-valuemax="Math.round(composerMax)" tabindex="0" @pointerdown="composerResize.pointerdown" @pointermove="composerResize.pointermove" @pointerup="composerResize.pointerup" @pointercancel="composerResize.pointercancel" @keydown="composerResize.keydown" @dblclick="composerResize.reset" />
-    <form class="composer" :style="studioMode?{height:composerSize+'px'}:undefined" @submit.prevent="send" @dragover.prevent @drop.prevent="onDrop">
-      <textarea ref="composerInput" v-model="draft" rows="3" placeholder="和项目 Agent 讨论创意，或拖入图片…" @keydown.ctrl.enter.prevent="send" />
+    </div>
+    <button v-if="unread && !readingMode" type="button" class="latest-button" @click="jumpLatest">回到最新 ↓</button>
+    <div v-if="studioMode" v-show="!readingMode" class="composer-handle" role="separator" aria-label="调整输入区高度" aria-orientation="horizontal" :aria-valuenow="Math.round(composerSize)" :aria-valuemin="80" :aria-valuemax="Math.round(composerMax)" tabindex="0" @pointerdown="composerResize.pointerdown" @pointermove="composerResize.pointermove" @pointerup="composerResize.pointerup" @pointercancel="composerResize.pointercancel" @keydown="composerResize.keydown" @dblclick="composerResize.reset" />
+    <form v-show="!readingMode" class="composer" :style="studioMode?{height:(largeEditor ? composerMax : composerSize)+'px'}:undefined" @submit.prevent="send" @dragover.prevent @drop.prevent="onDrop">
+      <textarea ref="composerInput" v-model="draft" :rows="integrated ? 2 : 3" @input="growComposer" placeholder="和项目 Agent 讨论创意，或拖入图片…" @keydown.ctrl.enter.prevent="send" />
       <div v-if="pendingImages.length" class="pending-images"><span v-for="(file,i) in pendingImages" :key="`${file.name}-${i}`">{{ file.name }} <button type="button" :aria-label="`移除 ${file.name}`" @click="pendingImages.splice(i,1)">×</button></span></div>
-      <div class="compose-actions"><label class="attach" for="project-agent-image">＋ 图片<input id="project-agent-image" type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFiles" /></label><small>Ctrl + Enter</small><button :disabled="busy || (!draft.trim() && !pendingImages.length)" :data-phase="busy?'WORKING':'IDLE'">{{ busy?'正在处理…':'发送' }}</button></div>
+      <div class="compose-actions"><label class="attach" for="project-agent-image">＋ 图片<input id="project-agent-image" type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFiles" /></label><button v-if="integrated" class="editor-toggle" type="button" @click="toggleEditor">{{ largeEditor ? '返回紧凑输入' : '大编辑' }}</button><small>Ctrl + Enter</small><button :disabled="busy || (!draft.trim() && !pendingImages.length)" :data-phase="busy?'WORKING':'IDLE'">{{ busy?'正在处理…':'发送' }}</button></div>
     </form>
     <t-dialog :visible="showVisionSettings" attach="body" width="680px" header="配置视觉分析模型" :footer="false" @close="closeVisionSettings"><ModelPresets :project-id="projectId" /><button type="button" @click="closeVisionSettings">完成并返回对话</button></t-dialog>
     <StudioImageLightbox v-if="!sharedImages" :images="fallbackImages.group.value" :index="fallbackImages.index.value" @close="fallbackImages.close" @change="fallbackImages.index.value=$event" />
@@ -90,7 +94,7 @@ type Phase = "thinking" | "analyzing" | "answering" | "checking" | "failed" | "u
 type Message = { id: string; role: string; content: string; createTime?: number; attachments?: Attachment[]; phase?: Phase; requestId?: string; actionId?: string; relatedUserMessageId?: string; error?: string; retryable?: boolean; checkable?: boolean; visionConfigurable?: boolean };
 type Submission = { id: string; generation: number; startedAt: number; content: string; files: File[]; ctx: ReturnType<typeof context>; attachmentIds: string[]; baselineIds: Set<string>; chatDispatched: boolean; parentCandidateId?: string; optionalDraft?: any; knownFailure?: string; persistedUserMessageId?: string };
 type Target = "brief" | "treatment" | "script";
-const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; activityJobs?: any[]; imageBaselines?:any[]; reviewCandidateId?: string; scopeLabel?: string; acceptStudioProposal?: (action: any, actionId: string) => Promise<void>; assetCreateReview?: StudioAssetCreateCardState | null; confirmAssetCreate?: (actionId: string) => Promise<void>; cancelAssetCreate?: (actionId: string) => void; retryAssetDraft?: (actionId: string) => Promise<void> }>();
+const props = defineProps<{ projectId: number; scriptId: number; stage: string; routeName: string; selected: { type: "ASSET" | "SHOT" | "PROJECT"; key: string } | null; creativeMode?: boolean; studioMode?: boolean; integrated?: boolean; readingMode?: boolean; resetLayoutKey?: number; activityJobs?: any[]; imageBaselines?:any[]; reviewCandidateId?: string; scopeLabel?: string; acceptStudioProposal?: (action: any, actionId: string) => Promise<void>; assetCreateReview?: StudioAssetCreateCardState | null; confirmAssetCreate?: (actionId: string) => Promise<void>; cancelAssetCreate?: (actionId: string) => void; retryAssetDraft?: (actionId: string) => Promise<void> }>();
 const emit = defineEmits<{ (e: "creative-candidate", value: { target: Target; sourceVersion: number; candidate: { proposedText: string; reason: string; proposedTargetDuration: number | null } }): void; (e: "production-asset-applied"): void; (e: "studio-professional"): void; (e: "director-proposal"): void }>();
 const proposalWorkspace = useV04ProposalWorkspace();
 const { themeSetting } = storeToRefs(settingStore());
@@ -103,14 +107,14 @@ const messages = computed(() => [...historyMessages.value.flatMap((m, index): Me
 }), ...localMessages.value]);
 const draft = ref(""), error = ref(""), busy = ref(false), feed = ref<HTMLElement | null>(null), composerInput = ref<HTMLTextAreaElement | null>(null);
 const imageCandidates=ref<any[]>([]),candidateUrls=ref<Record<string,string>>({}),editingCandidate=ref<string|null>(null),candidatePreview=ref<any>(null);
-const agentElement=ref<HTMLElement|null>(null),workspaceHeight=ref(600),composerSize=ref(140);
-const composerMax=computed(()=>Math.max(80,Math.min(420,workspaceHeight.value*.45)));
+const agentElement=ref<HTMLElement|null>(null),workspaceHeight=ref(600),composerSize=ref(112),largeEditor=ref(false);
+const composerMax=computed(()=>props.integrated ? Math.max(96,workspaceHeight.value-100) : Math.max(80,Math.min(420,workspaceHeight.value*.45)));
 const feedback=useStudioActionFeedback(),sharedImages=useStudioImageReview(),fallbackImages=createStudioImageReview(),reviewImages=sharedImages||fallbackImages;
 const now=ref(Date.now()),busyStartedAt=ref(Date.now()),completeUntil=ref(0),candidateAssistantIds=ref<Record<string,string>>({}),expandedHistory=ref<Record<string,boolean>>({});
 const lastActivityJob=ref<string|null>(null);
 let clock:ReturnType<typeof setInterval>|undefined,resizeObserver:ResizeObserver|undefined;
-const composerPreference='dreamstream.v04.agent-composer-height.v1';
-const composerResize=useResizablePane({value:composerSize,defaultValue:140,axis:'y',reverse:true,step:16,bounds:()=>({min:80,max:composerMax.value}),measure:event=>(agentElement.value?.getBoundingClientRect().bottom||window.innerHeight)-event.clientY});
+const composerPreference=props.integrated?'dreamstream.v04.workspace-composer.v2':'dreamstream.v04.agent-composer-height.v1';
+const composerResize=useResizablePane({value:composerSize,defaultValue:props.integrated?112:140,axis:'y',reverse:true,step:16,bounds:()=>({min:80,max:composerMax.value}),measure:event=>(agentElement.value?.getBoundingClientRect().bottom||window.innerHeight)-event.clientY});
 watch(composerSize,value=>{try{localStorage.setItem(composerPreference,String(value));}catch{/* Preferences do not affect request truth. */}});
 watch(busy,(value,previous)=>{if(value&&!previous)busyStartedAt.value=Date.now();});
 const activity=computed(()=>{const jobs=[...imageCandidates.value,...(props.activityJobs||[])].filter(j=>['QUEUED','RUNNING'].includes(j.status));
@@ -141,7 +145,7 @@ async function openCandidate(c:any){const own=generation;const group=imageCandid
 function focusComposer() { composerInput.value?.focus(); }
 function setInstruction(text:string){draft.value=text;focusComposer();}
 function directorAccepted(){localMessages.value.push({id:`director-confirmed:${Date.now()}`,role:"assistant",content:"已采用这版导演方向。后续视觉设计可在下一阶段以它为基础，但当前图片不会自动改变。"});scrollToLatest();}
-defineExpose({ focusComposer, setInstruction, directorAccepted });
+defineExpose({ focusComposer, setInstruction, directorAccepted, readingPosition, restoreReading, preserveReading });
 function studioActionFor(m: Message) { return proposalWorkspace.current().studioActions[m.actionId || m.id]; }
 function assetReviewFor(m: Message) { return props.assetCreateReview?.actionId === (m.actionId || m.id) ? props.assetCreateReview : null; }
 async function acceptStudioAction(m: Message) {
@@ -158,7 +162,19 @@ const submissions = new Map<string, Submission>();
 let generation = 0, historyGeneration = 0;
 function context() { return { projectId: props.projectId, scriptId: props.scriptId, currentStage: props.stage, currentRoute: props.routeName, selectedObject: props.selected }; }
 function clearImages() { for (const url of Object.values(imageUrls.value)) URL.revokeObjectURL(url); imageUrls.value = {}; }
-function scrollToLatest() { void nextTick(() => feed.value?.scrollTo({ top: feed.value.scrollHeight })); }
+const following=ref(true),unread=ref(false);let preserving=false;
+function onFeedScroll(){const el=feed.value;if(!el||preserving)return;following.value=el.scrollHeight-el.clientHeight-el.scrollTop<48;if(following.value)unread.value=false;}
+function scrollToLatest(){if(props.integrated&&(!following.value||props.readingMode)){unread.value=true;return;}void nextTick(()=>feed.value?.scrollTo({top:feed.value.scrollHeight}));}
+function onFeedContentLoad(){if(!props.integrated)return;scrollToLatest();}
+function jumpLatest(){following.value=true;unread.value=false;void nextTick(()=>feed.value?.scrollTo({top:feed.value.scrollHeight}));}
+function readingPosition(){return feed.value?.scrollTop||0;}
+function restoreReading(top:number){following.value=false;void nextTick(()=>feed.value?.scrollTo({top}));}
+function preserveReading(action:()=>void){const el=feed.value;if(!el){action();return;}const top=el.scrollTop;const anchor=Array.from(el.querySelectorAll<HTMLElement>('.turn,.director-card,.narrative,.story-world')).find(node=>node.getBoundingClientRect().bottom>el.getBoundingClientRect().top);const y=anchor?.getBoundingClientRect().top;following.value=false;preserving=true;action();void nextTick(()=>{el.scrollTop=anchor&&y!==undefined?top+anchor.getBoundingClientRect().top-y:top;requestAnimationFrame(()=>preserving=false);});}
+function toggleEditor(){preserveReading(()=>largeEditor.value=!largeEditor.value);void nextTick(focusComposer);}
+function growComposer(){if(!props.integrated||largeEditor.value)return;const el=composerInput.value;if(!el)return;el.style.height='auto';const wanted=el.scrollHeight+68;el.style.height='';composerSize.value=Math.min(composerMax.value,Math.max(composerSize.value,wanted));}
+watch(()=>props.resetLayoutKey,()=>{composerResize.cancel();largeEditor.value=false;composerSize.value=112;});
+watch(()=>props.readingMode,()=>following.value=false);
+watch(()=>[messages.value.length,imageCandidates.value.map(c=>c.id+':'+c.status).join(',')],()=>{if(props.integrated)scrollToLatest();});
 function visionError(data: any) { return `${data.reply || "图片分析失败"}${data.errorCode ? ` 错误代码：${String(data.errorCode).replace(/^PILOT_/, "")}` : ""}${data.errorId ? `；诊断编号：${data.errorId}` : ""}`; }
 function localAgent(requestId: string) { return localMessages.value.find(m => m.id === `local-agent:${requestId}`); }
 function removeLocalUser(requestId: string) {
@@ -409,8 +425,8 @@ async function applyReference() {
   catch (e: any) { error.value = e?.message || "图片用途确认失败"; }
   finally { busy.value = false; }
 }
-onMounted(() => { void load();clock=setInterval(()=>now.value=Date.now(),1000);if(props.studioMode){workspaceHeight.value=agentElement.value?.clientHeight||600;try{composerSize.value=composerHeight(localStorage.getItem(composerPreference),workspaceHeight.value);}catch{composerSize.value=composerHeight(140,workspaceHeight.value);}if(typeof ResizeObserver!=='undefined'){resizeObserver=new ResizeObserver(()=>{workspaceHeight.value=agentElement.value?.clientHeight||600;composerResize.clamp();});if(agentElement.value)resizeObserver.observe(agentElement.value);}void loadImageCandidates();candidatePoll=setInterval(()=>void loadImageCandidates(),2500);} });
-watch(() => [props.projectId, props.scriptId], () => { generation++; historyGeneration++;feedback.reset();reviewImages.close();composerResize.cancel();expandedHistory.value={};candidateAssistantIds.value={};completeUntil.value=0;lastActivityJob.value=null;candidateLoading=false;clearImages(); clearCandidateImages();imageCandidates.value=[];editingCandidate.value=null;candidatePreview.value=null;baselinePreview.value=null; historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; showVisionSettings.value = false; void load();void loadImageCandidates(); });
+onMounted(() => { void load();clock=setInterval(()=>now.value=Date.now(),1000);if(props.studioMode){workspaceHeight.value=agentElement.value?.clientHeight||600;try{composerSize.value=props.integrated?Math.min(composerMax.value,Math.max(96,Number(localStorage.getItem(composerPreference))||112)):composerHeight(localStorage.getItem(composerPreference),workspaceHeight.value);}catch{composerSize.value=props.integrated?112:composerHeight(140,workspaceHeight.value);}if(typeof ResizeObserver!=='undefined'){resizeObserver=new ResizeObserver(()=>{const height=agentElement.value?.clientHeight;if(height){workspaceHeight.value=height;composerResize.clamp();}});if(agentElement.value)resizeObserver.observe(agentElement.value);}void loadImageCandidates();candidatePoll=setInterval(()=>void loadImageCandidates(),2500);} });
+watch(() => [props.projectId, props.scriptId], () => { generation++; historyGeneration++;following.value=true;unread.value=false;draft.value="";pendingImages.value=[];feedback.reset();reviewImages.close();composerResize.cancel();expandedHistory.value={};candidateAssistantIds.value={};completeUntil.value=0;lastActivityJob.value=null;candidateLoading=false;clearImages(); clearCandidateImages();imageCandidates.value=[];editingCandidate.value=null;candidatePreview.value=null;baselinePreview.value=null; historyMessages.value = []; localMessages.value = []; submissions.clear(); busy.value = false; referencePreview.value = null; showVisionSettings.value = false; void load();void loadImageCandidates(); });
 onBeforeUnmount(() => { generation++;feedback.reset();reviewImages.close();resizeObserver?.disconnect();if(clock)clearInterval(clock);clearImages();if(candidatePoll)clearInterval(candidatePoll);clearCandidateImages(); });
 </script>
 <style scoped>
@@ -428,4 +444,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:1.2
 .agent{min-width:0}.composer{flex-shrink:0;min-height:0}.more-actions{padding:.25rem 1.2rem;border-bottom:1px solid var(--td-component-border);color:var(--td-text-color-secondary);font-size:.75rem}.more-actions summary{cursor:pointer;padding:.25rem 0}.more-actions .quick-actions{padding:.5rem 0;border:0}.studio-proposal{margin:.85rem 0 .3rem;padding:.7rem 0;font-size:.82rem}.studio-proposal strong{display:block;color:var(--td-text-color-primary)}.studio-proposal p{line-height:1.5;margin:.45rem 0}.studio-proposal small{color:var(--td-text-color-secondary)}.studio-proposal .turn-actions{flex-wrap:wrap}.studio-proposal button{background:var(--td-bg-color-container);color:var(--td-text-color-primary);border:1px solid var(--td-component-border);font-size:.73rem;padding:.35rem .55rem}
 .agent.studio-agent header{padding:.55rem .9rem .35rem}.agent.studio-agent header small{display:none}.agent.studio-agent .context{padding:.25rem .9rem .45rem}.agent.studio-agent .more-actions{padding:.15rem .9rem}.agent.studio-agent .feed{padding:.6rem .9rem}.agent.studio-agent .composer{padding:.6rem .9rem;box-sizing:border-box;display:flex;flex-direction:column;flex:none}.agent.studio-agent .composer textarea{flex:1;height:auto;min-height:20px;max-height:none;resize:none}.composer-handle{height:7px;flex:none;cursor:row-resize;touch-action:none;border-top:1px solid var(--td-component-border)}.composer-handle:hover,.composer-handle:focus-visible{background:var(--td-brand-color);outline:none}.agent.studio-agent .turn.assistant{border-left:0;padding-left:0;border-top:1px solid color-mix(in srgb,var(--agent-ink) 15%,transparent)}.candidate-history{margin:.6rem 0;color:var(--td-text-color-secondary)}.candidate-history summary{cursor:pointer}.automatic-turn{margin:1rem 0}.review-image{cursor:zoom-in}.studio-spinner{display:inline-block;width:.7em;height:.7em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:studio-spin 1s linear infinite;margin-right:.35rem}@keyframes studio-spin{to{transform:rotate(360deg)}}button:hover:not(:disabled){filter:brightness(1.15);outline:1px solid var(--td-brand-color)}button:active:not(:disabled){transform:translateY(1px)}button[data-phase=WORKING]{background:color-mix(in srgb,var(--td-brand-color) 14%,var(--td-bg-color-container));color:var(--td-brand-color)}@media(prefers-reduced-motion:reduce){.studio-spinner{animation:none}}
 .studio-proposal .warning{color:var(--td-warning-color)}.studio-proposal .success{color:var(--td-success-color)}
+
+/* Integrated mode owns the sole left body scroller; Professional defaults stay intact. */
+.integrated-agent{border:0;position:relative}.integrated-agent>header{padding:.55rem 1.2rem;flex-shrink:0}.integrated-agent>header small,.integrated-agent>.context{display:none}.integrated-agent>.more-actions{padding:.2rem 1.2rem;flex-shrink:0}.integrated-agent>.feed{padding:.5rem 1.2rem 1.2rem;overflow-x:hidden;overflow-anchor:auto}.integrated-agent>.composer{box-sizing:border-box;flex:0 0 auto;padding:.65rem 1rem;min-height:96px;display:flex;flex-direction:column}.integrated-agent>.composer textarea{flex:1;min-height:24px;resize:none;height:auto;overflow-y:auto}.integrated-agent .compose-actions{flex-shrink:0;gap:.4rem}.integrated-agent .editor-toggle{font-size:.72rem;background:transparent;color:var(--td-text-color-secondary);border:1px solid var(--td-component-border);padding:.25rem .4rem}.integrated-agent .pending-images{flex-shrink:0;max-height:4rem;overflow:auto}.reading-mode>.feed .conversation-body{display:none}.reading-mode>.more-actions{display:none}.latest-button{position:absolute;right:1.2rem;top:72px;z-index:3;font-size:.75rem;box-shadow:0 2px 8px #0004}.integrated-agent .conversation-body{min-width:0}.integrated-agent.large-editor>.feed{min-height:0}
 </style>

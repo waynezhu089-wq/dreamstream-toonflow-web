@@ -1,8 +1,8 @@
 export const studioLayoutKey = 'dreamstream:v04:studio-layout';
-export type StudioLayout = { mainSplitRatio: number; leftVerticalSplitRatio: number; assetDrawerWidth: number };
-export const defaultStudioLayout: StudioLayout = { mainSplitRatio: 58, leftVerticalSplitRatio: 62, assetDrawerWidth: 440 };
+export type StudioLayout = { version: 2; mainSplitRatio: number; assetDrawerWidth: number; focus: 'split'|'creative'|'assets'; directorExpanded: boolean };
+export const defaultStudioLayout: StudioLayout = { version: 2, mainSplitRatio: 58, assetDrawerWidth: 440, focus: 'split', directorExpanded: false };
 export function clamp(value: number, min: number, max: number) { return Math.min(Math.max(value, min), max); }
-export function mainBounds(width: number) { return { min: 420 / width * 100, max: (width - 340 - 7) / width * 100 }; }
+export function mainBounds(width: number) { return { min: Math.min(45, 300 / width * 100), max: Math.max(55, (width - 260 - 7) / width * 100) }; }
 // The Agent header, feed and composer need more than the theoretical 220px
 // minimum to remain usable on an ordinary laptop screen.
 export function verticalBounds(height: number) { return { min: 220 / height * 100, max: (height - 400 - 7) / height * 100 }; }
@@ -11,8 +11,10 @@ export function readStudioLayout(storage: Pick<Storage, 'getItem'> | null = type
   try {
     const value = JSON.parse(storage?.getItem(studioLayoutKey) || 'null');
     return {
-      mainSplitRatio: Number.isFinite(value?.mainSplitRatio) && value.mainSplitRatio >= 20 && value.mainSplitRatio <= 80 ? value.mainSplitRatio : 58,
-      leftVerticalSplitRatio: Number.isFinite(value?.leftVerticalSplitRatio) && value.leftVerticalSplitRatio >= 20 && value.leftVerticalSplitRatio <= 80 ? value.leftVerticalSplitRatio : 62,
+      version: 2,
+      mainSplitRatio: Number.isFinite(value?.mainSplitRatio) && value.mainSplitRatio >= 10 && value.mainSplitRatio <= 90 ? value.mainSplitRatio : 58,
+      focus: value?.version === 2 && ['split','creative','assets'].includes(value.focus) ? value.focus : 'split',
+      directorExpanded: value?.version === 2 && value.directorExpanded === true,
       assetDrawerWidth: Number.isFinite(value?.assetDrawerWidth) && value.assetDrawerWidth >= 250 && value.assetDrawerWidth <= 1600 ? value.assetDrawerWidth : 440,
     };
   } catch { return { ...defaultStudioLayout }; }
