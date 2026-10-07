@@ -12,5 +12,6 @@
 defineProps<{controller:any;disabled?:boolean}>();defineEmits(['recover-director']);
 </script>
 <style scoped>
+.preparation-feedback small{display:block;overflow-wrap:anywhere}
 .preparation-feedback{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem}.preparation-feedback p,.preparation-feedback details{flex-basis:100%;margin:.25rem 0;font-size:.82rem}.failure{color:var(--td-error-color)}button{border:1px solid var(--td-component-border);border-radius:6px;padding:.45rem .65rem;background:var(--td-bg-color-secondarycontainer);color:var(--td-text-color-primary);cursor:pointer}button:hover:not(:disabled){filter:brightness(1.12)}button:active:not(:disabled){transform:translateY(1px)}button:disabled{opacity:.55;cursor:default}.spinner{display:inline-block;width:.7em;height:.7em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin 1s linear infinite;margin-right:.4rem}@keyframes spin{to{transform:rotate(360deg)}}
 </style>
