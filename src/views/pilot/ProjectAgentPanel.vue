@@ -74,6 +74,7 @@
   </aside>
 </template>
 <script setup lang="ts">
+import {isConversationalPackageCandidate} from "./assetCanonicalPackage";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { MdPreview } from "md-editor-v3";
@@ -131,7 +132,7 @@ const activity=computed(()=>{const jobs=[...imageCandidates.value,...(props.acti
 watch(()=>activity.value.jobId,id=>{if(id)lastActivityJob.value=id;});
 watch(()=>activity.value.running,(value,previous)=>{if(previous&&!value)completeUntil.value=Date.now()+5000;});
 function anchor(c:any){return candidateTurnAnchor(c,messages.value,candidateAssistantIds.value[c.userMessageId]);}
-function isConversationalEditCandidate(c:any){return c.generationIntent==='ASSET_IMAGE_EDIT'&&!c.automatic&&!c.snapshot?.autoVersion;}
+function isConversationalEditCandidate(c:any){return isConversationalPackageCandidate(c)||c.generationIntent==='ASSET_IMAGE_EDIT'&&!c.automatic&&!c.snapshot?.autoVersion;}
 function candidateActions(id:string){return {adoptPreview:feedback.state(id+':adopt-preview'),adoptConfirm:feedback.state(id+':adopt-confirm'),continue:feedback.state(id+':continue'),reject:feedback.state(id+':reject')};}
 function isCurrentCandidate(c:any){return imageCandidates.value.find(other=>other.canonicalKey===c.canonicalKey)?.id===c.id;}
 watch(()=>props.imageBaselines,()=>{for(const c of imageCandidates.value)c.current=props.imageBaselines?.some(b=>b.sourceJobId===c.id);},{deep:true});

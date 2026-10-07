@@ -6,6 +6,7 @@ export function assetCardReviewImages(item:any,drafts:Record<string,string>,refe
  const result:CardReview[]=[],seen=new Set<string>();
  const add=(image:CardReview)=>{const key=image.artifactId?'artifact:'+image.artifactId:image.attachmentId?'attachment:'+image.attachmentId:image.src;if(!key||seen.has(key)||result.length>=4)return;seen.add(key);result.push(image);};
  const job=(j:any,label:string)=>{if(j?.status!=='SUCCEEDED'||j.decision==='REJECTED'||item.rejectedJobIds?.includes(j.id)||!j.outputs?.[0]?.artifactId)return;const output=j.outputs[0];add({id:j.id,jobId:j.id,candidateId:j.id,artifactId:output.artifactId,src:drafts[j.id]||'',label});};
+ if(item.canonicalPackage){job(item.canonicalPackage.main,'Klein 主视图');for(const view of item.canonicalPackage.views)job(view,labels[view.executionPurpose]||'Klein 视角');return result;}
  const baselineJob=[item.acceptedImageJob,item.readyMainJob,item.imageJob,...Object.values(item.referenceJobs||{})].find((j:any)=>j?.id===item.baseline?.sourceJobId);
  if(item.baseline)add({id:item.baseline.attachmentId,attachmentId:item.baseline.attachmentId,artifactId:item.baseline.sourceArtifactId||baselineJob?.outputs?.[0]?.artifactId,src:references[item.baseline.attachmentId]||'',label:'当前版本'});
  else job(item.acceptedImageJob,'当前版本');
